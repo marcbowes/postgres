@@ -520,6 +520,7 @@ struct pg_conn
 	char		current_auth_response;	/* used by pqTraceOutputMessage to
 										 * know which auth response we're
 										 * sending */
+	bool        is_dsql;        /* when true, auth tokens are auto-generated */
 
 	/* Callbacks for external async authentication */
 	PostgresPollingStatusType (*async_auth) (PGconn *conn);

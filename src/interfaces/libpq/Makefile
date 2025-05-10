@@ -24,7 +24,16 @@ NAME= pq
 SO_MAJOR_VERSION= 5
 SO_MINOR_VERSION= $(MAJORVERSION)
 
-override CPPFLAGS :=  -I$(srcdir) $(CPPFLAGS) -I$(top_builddir)/src/port -I$(top_srcdir)/src/port
+override CPPFLAGS :=  -I$(srcdir) $(CPPFLAGS) -I$(top_builddir)/src/port -I$(top_srcdir)/src/port \
+	-I$(top_srcdir)/aws-dsql-auth/include \
+	-I$(top_srcdir)/aws-dsql-auth/aws-sdk/aws-c-auth/include \
+	-I$(top_srcdir)/aws-dsql-auth/aws-sdk/aws-c-common/include \
+	-I$(top_srcdir)/aws-dsql-auth/aws-sdk/aws-c-io/include \
+	-I$(top_srcdir)/aws-dsql-auth/aws-sdk/aws-c-sdkutils/include \
+	-I$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-common/generated/include \
+	-I$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-auth/generated/include \
+	-I$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-io/generated/include \
+	-I$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-sdkutils/generated/include
 ifneq ($(PORTNAME), win32)
 override CFLAGS += $(PTHREAD_CFLAGS)
 endif
@@ -44,7 +53,8 @@ OBJS = \
 	legacy-pqsignal.o \
 	libpq-events.o \
 	pqexpbuffer.o \
-	fe-auth.o
+	fe-auth.o \
+	fe-dsql-auth.o
 
 # File shared across all SSL implementations supported.
 ifneq ($(with_ssl),no)
@@ -85,9 +95,22 @@ endif
 # matter.)  Note that we filter out -lpgcommon and -lpgport from LIBS and
 # instead link with -lpgcommon_shlib and -lpgport_shlib, to get object files
 # that are built correctly for use in a shlib.
-SHLIB_LINK_INTERNAL = -lpgcommon_shlib -lpgport_shlib
+SHLIB_LINK_INTERNAL = -lpgcommon_shlib -lpgport_shlib \
+	-L$(top_srcdir)/aws-dsql-auth/build -laws-dsql-auth \
+	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-common -laws-c-common \
+	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-auth -laws-c-auth \
+	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-io -laws-c-io \
+	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-sdkutils -laws-c-sdkutils \
+	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-cal -laws-c-cal \
+	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-http -laws-c-http \
+	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-compression -laws-c-compression
 ifneq ($(PORTNAME), win32)
 SHLIB_LINK += $(filter -lcrypt -ldes -lcom_err -lcrypto -lk5crypto -lkrb5 -lgssapi_krb5 -lgss -lgssapi -lssl -lsocket -lnsl -lresolv -lintl -lm, $(LIBS)) $(LDAP_LIBS_FE) $(PTHREAD_LIBS)
+
+# Add macOS-specific frameworks
+ifeq ($(PORTNAME),darwin)
+SHLIB_LINK += -framework CoreFoundation -framework Security -framework Network
+endif
 else
 SHLIB_LINK += $(filter -lcrypt -ldes -lcom_err -lcrypto -lk5crypto -lkrb5 -lgssapi32 -lssl -lsocket -lnsl -lresolv -lintl -lm $(PTHREAD_LIBS), $(LIBS)) $(LDAP_LIBS_FE)
 endif
@@ -161,6 +184,7 @@ install: all installdirs install-lib
 	$(INSTALL_DATA) $(srcdir)/libpq-events.h '$(DESTDIR)$(includedir)'
 	$(INSTALL_DATA) $(srcdir)/libpq-int.h '$(DESTDIR)$(includedir_internal)'
 	$(INSTALL_DATA) $(srcdir)/fe-auth-sasl.h '$(DESTDIR)$(includedir_internal)'
+	$(INSTALL_DATA) $(srcdir)/fe-dsql-auth.h '$(DESTDIR)$(includedir_internal)'
 	$(INSTALL_DATA) $(srcdir)/pqexpbuffer.h '$(DESTDIR)$(includedir_internal)'
 	$(INSTALL_DATA) $(srcdir)/pg_service.conf.sample '$(DESTDIR)$(datadir)/pg_service.conf.sample'
 
@@ -183,6 +207,7 @@ uninstall: uninstall-lib
 	rm -f '$(DESTDIR)$(includedir)/libpq-events.h'
 	rm -f '$(DESTDIR)$(includedir_internal)/libpq-int.h'
 	rm -f '$(DESTDIR)$(includedir_internal)/fe-auth-sasl.h'
+	rm -f '$(DESTDIR)$(includedir_internal)/fe-dsql-auth.h'
 	rm -f '$(DESTDIR)$(includedir_internal)/pqexpbuffer.h'
 	rm -f '$(DESTDIR)$(datadir)/pg_service.conf.sample'
 

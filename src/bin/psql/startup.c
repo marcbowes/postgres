@@ -186,6 +186,7 @@ main(int argc, char *argv[])
 	pset.notty = (!isatty(fileno(stdin)) || !isatty(fileno(stdout)));
 
 	pset.getPassword = TRI_DEFAULT;
+	pset.dsql = false;  /* Initialize dsql flag to false */
 
 	EstablishVariableSpace();
 
@@ -211,6 +212,13 @@ main(int argc, char *argv[])
 	SetVariable(pset.vars, "PIPELINE_RESULT_COUNT", "0");
 
 	parse_psql_options(argc, argv, &options);
+	
+	if (pset.dsql)
+	{
+		setenv("PGSSLMODE", "require", 0);
+		setenv("PGDSQL", "1", 1);
+		pset.getPassword = TRI_NO;
+	}
 
 	/*
 	 * If no action was specified and we're in non-interactive mode, treat it
@@ -274,6 +282,7 @@ main(int argc, char *argv[])
 		values[7] = NULL;
 
 		new_pass = false;
+		
 		pset.db = PQconnectdbParams(keywords, values, true);
 		free(keywords);
 		free(values);
@@ -525,6 +534,7 @@ parse_psql_options(int argc, char *argv[], struct adhoc_opts *options)
 		{"no-psqlrc", no_argument, NULL, 'X'},
 		{"help", optional_argument, NULL, 1},
 		{"csv", no_argument, NULL, 2},
+		{"dsql", no_argument, NULL, 3},
 		{NULL, 0, NULL, 0}
 	};
 
@@ -717,6 +727,9 @@ parse_psql_options(int argc, char *argv[], struct adhoc_opts *options)
 				break;
 			case 2:
 				pset.popt.topt.format = PRINT_CSV;
+				break;
+			case 3:
+				pset.dsql = true;
 				break;
 			default:
 		unknown_option:

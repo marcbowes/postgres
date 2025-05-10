@@ -1,0 +1,3 @@
+[submodule "aws-dsql-auth"]
+	path = aws-dsql-auth
+	url = https://github.com/marcbowes/aws-dsql-auth.git

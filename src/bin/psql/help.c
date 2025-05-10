@@ -113,6 +113,7 @@ usage(unsigned short int pager)
 	HELP0("  -U, --username=USERNAME  database user name\n");
 	HELP0("  -w, --no-password        never prompt for password\n");
 	HELP0("  -W, --password           force password prompt (should happen automatically)\n");
+	HELP0("      --dsql               enable Aurora DSQL mode\n");
 
 	HELP0("\nFor more information, type \"\\?\" (for internal commands) or \"\\help\" (for SQL\n"
 		  "commands) from within psql, or consult the psql section in the PostgreSQL\n"

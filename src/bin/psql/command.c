@@ -4035,6 +4035,11 @@ do_connect(enum trivalue reuse_previous_specification,
 		success = false;
 	}
 
+	/*  When in DSQL mode, we never reuse passwords (as tokens may have expired). */
+	if (pset.dsql) {
+		keep_password = false;
+	}
+
 	/*
 	 * If the user asked to be prompted for a password, ask for one now. If
 	 * not, use the password from the old connection, provided the username
@@ -4045,7 +4050,7 @@ do_connect(enum trivalue reuse_previous_specification,
 	 * the postmaster's log.  But libpq offers no API that would let us obtain
 	 * a password and then continue with the first connection attempt.
 	 */
-	if (pset.getPassword == TRI_YES && success)
+	if (pset.getPassword == TRI_YES && success && !pset.dsql)
 	{
 		bool		canceled = false;
 

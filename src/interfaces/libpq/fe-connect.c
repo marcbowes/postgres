@@ -23,10 +23,12 @@
 #include <unistd.h>
 
 #include "common/base64.h"
+#include "common/logging.h"
 #include "common/ip.h"
 #include "common/link-canary.h"
 #include "common/scram-common.h"
 #include "common/string.h"
+#include "fe-dsql-auth.h"
 #include "fe-auth.h"
 #include "fe-auth-oauth.h"
 #include "libpq-fe.h"
@@ -879,6 +881,12 @@ PQconnectStartParams(const char *const *keywords,
 	if (conn == NULL)
 		return NULL;
 
+	if (strcmp(getenv("PGDSQL"), "1") == 0) {
+		conn->is_dsql = true;
+		conn->sslmode = strdup("direct");
+		conn->auth_required = true;
+	}
+
 	/*
 	 * Parse the conninfo arrays
 	 */
@@ -1418,11 +1426,39 @@ pqConnectOptions2(PGconn *conn)
 			goto oom_error;
 	}
 
+	/* 
+	 * In DSQL mode, generate auth tokens.
+	 */
+	if (conn->is_dsql)
+	{
+		for (i = 0; i < conn->nconnhost; i++)
+		{
+			bool is_admin;
+			char *token;
+			char *err_msg = NULL;
+			const char *pwhost = conn->connhost[i].host;
+			if (pwhost == NULL || pwhost[0] == '\0')
+					pwhost = conn->connhost[i].hostaddr;
+			
+			is_admin = strcmp("admin", conn->pguser) == 0;
+			token = generate_dsql_token(pwhost, is_admin, &err_msg);
+			if (!token)
+			{
+				libpq_append_conn_error(conn, "DSQL token generation failed for host=%s: %s", 
+					pwhost, err_msg ? err_msg : "unknown error");
+				if (err_msg)
+					free(err_msg);
+			}
+			else
+				conn->connhost[i].password = token;
+		}
+	}
+
 	/*
 	 * If password was not given, try to look it up in password file.  Note
 	 * that the result might be different for each host/port pair.
 	 */
-	if (conn->pgpass == NULL || conn->pgpass[0] == '\0')
+	if ((conn->pgpass == NULL || conn->pgpass[0] == '\0') && !conn->is_dsql)
 	{
 		/* If password file wasn't specified, use ~/PGPASSFILE */
 		if (conn->pgpassfile == NULL || conn->pgpassfile[0] == '\0')
