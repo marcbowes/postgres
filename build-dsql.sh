@@ -55,10 +55,10 @@ echo "  AWS DSQL Auth library built successfully!"
 # Step 2: Configure PostgreSQL with SSL support
 echo "Step 2: Configuring PostgreSQL with SSL support..."
 if [ ! -f "config.status" ]; then
-    echo "  Running configure with SSL and DSQL support..."
-    ./configure --with-openssl --with-dsql $OS_SPECIFIC_CONFIG
+    echo "  Running configure ..."
+    ./configure $OS_SPECIFIC_CONFIG
 else
-    echo "  PostgreSQL already configured. If you need to reconfigure, run './configure --with-openssl --with-dsql $OS_SPECIFIC_CONFIG' manually."
+    echo "  PostgreSQL already configured. If you need to reconfigure, run './configure $OS_SPECIFIC_CONFIG' manually."
 fi
 
 # Step 3: Build libpq (PostgreSQL client library)
@@ -70,14 +70,6 @@ echo "  libpq built successfully!"
 echo "Step 4: Building psql..."
 make -C src/bin/psql
 echo "  psql built successfully!"
-
-# Verify SSL support
-echo "Verifying SSL support in psql binary..."
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    otool -L src/bin/psql/psql | grep -i ssl
-else
-    ldd src/bin/psql/psql | grep -i ssl
-fi
 
 # Final instructions
 echo ""
