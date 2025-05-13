@@ -234,3 +234,95 @@ If you encounter issues with DSQL authentication:
 - DSQL Authentication is primarily intended for use with AWS Database Services for PostgreSQL
 - Token generation happens automatically and is transparent to the user
 - Currently, admin token generation is only supported for the `admin` user
+
+## Packaging and Distribution
+
+PostgreSQL DSQL client can be packaged into a distributable format that can be easily downloaded from GitHub Releases.
+
+### Overview of the Packaging System
+
+The packaging system:
+
+- Takes the built `psql` binary and `libpq` library
+- Copies them into a structured directory called `postgres-dsql`
+- Renames `psql` to `pdsql`
+- Sets up the proper relative library paths so `pdsql` can find `libpq`
+- Creates a ZIP archive for distribution
+
+### Directory Structure
+
+The packaged distribution has the following structure:
+
+```
+postgres-dsql/
+├── bin/
+│   └── pdsql     # Renamed psql binary
+└── lib/
+    └── libpq.5.dylib  # PostgreSQL client library
+```
+
+### GitHub Actions Workflow
+
+The GitHub Actions workflow automates the build and packaging process, and is triggered:
+
+- Manually via workflow_dispatch
+- On creation of version tags (v*)
+
+To create a new release:
+1. Tag a commit with a version number: `git tag v1.0.0`
+2. Push the tag: `git push origin v1.0.0`
+
+The workflow will:
+1. Build PostgreSQL with DSQL support
+2. Package the binaries
+3. Test the package
+4. Upload the package as a GitHub release artifact
+
+### Local Development and Testing
+
+#### Testing the Packaging Locally
+
+To test the packaging process locally:
+
+```bash
+# Build if needed and package
+./scripts/test-packaging.sh
+```
+
+This script will:
+1. Build DSQL if not already built
+2. Package the build into postgres-dsql.zip
+3. Extract and test the binary by running `dpsql --version`
+
+#### Manual Testing
+
+You can also test manually:
+
+```bash
+# Build DSQL
+./scripts/build-dsql.sh
+
+# Package the build
+./scripts/package.sh
+
+# Test the packaged binary
+unzip -o postgres-dsql.zip -d /tmp
+/tmp/postgres-dsql/bin/pdsql --version
+```
+
+### Using the Packaged Binary
+
+After downloading and extracting the package:
+
+```bash
+unzip postgres-dsql.zip
+cd postgres-dsql
+./bin/pdsql --host=your-dsql-endpoint.example.com --user=admin --dbname=postgres
+```
+
+Note: The renamed binary `pdsql` automatically enables DSQL authentication mode, so the `--dsql` flag is not necessary.
+
+### Current Limitations
+
+- This packaging solution currently only supports ARM macOS
+- The package assumes the necessary AWS credentials are available in the environment

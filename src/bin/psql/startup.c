@@ -211,6 +211,10 @@ main(int argc, char *argv[])
 	SetVariable(pset.vars, "PIPELINE_COMMAND_COUNT", "0");
 	SetVariable(pset.vars, "PIPELINE_RESULT_COUNT", "0");
 
+	/* Automatically enable dsql mode if the program is named "pdsql" */
+	if (strcmp(pset.progname, "pdsql") == 0)
+		pset.dsql = true;
+
 	parse_psql_options(argc, argv, &options);
 	
 	if (pset.dsql)
