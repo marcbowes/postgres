@@ -2,7 +2,7 @@
 set -e
 
 REPO="marcbowes/postgres"
-DEFAULT_INSTALL_PATH="$HOME/.local"
+INSTALL_PATH="$HOME/.local"
 
 # Function to display error messages and exit
 error_exit() {
@@ -38,10 +38,6 @@ fi
 
 TAG_NAME=$(echo "$RELEASE_INFO" | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
 echo "Latest release found: $TAG_NAME"
-
-# Prompt for installation path
-read -p "Enter installation path [$DEFAULT_INSTALL_PATH]: " INSTALL_PATH
-INSTALL_PATH=${INSTALL_PATH:-$DEFAULT_INSTALL_PATH}
 
 # Create directories if they don't exist
 mkdir -p "$INSTALL_PATH/bin"
