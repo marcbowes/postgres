@@ -8,7 +8,24 @@ echo "==================================================="
 if [[ "$OSTYPE" == "darwin"* ]]; then
     echo "Detected macOS"
     LIBRARY_PATH_VAR="DYLD_LIBRARY_PATH"
+    
+    # Base configuration with OpenSSL
     OS_SPECIFIC_CONFIG="--with-includes=/opt/homebrew/opt/openssl/include --with-libraries=/opt/homebrew/opt/openssl/lib"
+    
+    # Check for ICU4C in Homebrew
+    if [ -d "/opt/homebrew/opt/icu4c" ]; then
+        echo "  Detected Homebrew ICU4C installation"
+        # Use the Homebrew-maintained symlink to the current version
+        export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig:$PKG_CONFIG_PATH"
+        echo "  Added ICU4C to build configuration"
+    elif [ -d "/usr/local/opt/icu4c" ]; then
+        # For Intel Macs with Homebrew installed in /usr/local
+        echo "  Detected Homebrew ICU4C installation in /usr/local"
+        export PKG_CONFIG_PATH="/usr/local/opt/icu4c/lib/pkgconfig:$PKG_CONFIG_PATH"
+        echo "  Added ICU4C to build configuration"
+    else
+        echo "  Warning: Homebrew ICU4C not detected, configure may fail if ICU is required"
+    fi
 else
     echo "Detected Linux/Unix system"
     LIBRARY_PATH_VAR="LD_LIBRARY_PATH"
@@ -38,10 +55,10 @@ echo "  AWS DSQL Auth library built successfully!"
 # Step 2: Configure PostgreSQL with SSL support
 echo "Step 2: Configuring PostgreSQL with SSL support..."
 if [ ! -f "config.status" ]; then
-    echo "  Running configure with SSL support..."
-    ./configure --with-openssl $OS_SPECIFIC_CONFIG
+    echo "  Running configure with SSL and DSQL support..."
+    ./configure --with-openssl --with-dsql $OS_SPECIFIC_CONFIG
 else
-    echo "  PostgreSQL already configured. If you need to reconfigure, run './configure --with-openssl $OS_SPECIFIC_CONFIG' manually."
+    echo "  PostgreSQL already configured. If you need to reconfigure, run './configure --with-openssl --with-dsql $OS_SPECIFIC_CONFIG' manually."
 fi
 
 # Step 3: Build libpq (PostgreSQL client library)
