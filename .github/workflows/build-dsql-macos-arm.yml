@@ -19,7 +19,7 @@ jobs:
       - name: Set up macOS
         run: |
           brew update
-          brew install openssl@3 icu4c zip
+          brew install openssl@3 icu4c zip readline
 
       - name: Build DSQL
         run: |

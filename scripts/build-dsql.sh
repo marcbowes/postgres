@@ -9,8 +9,8 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     echo "Detected macOS"
     LIBRARY_PATH_VAR="DYLD_LIBRARY_PATH"
     
-    # Base configuration with OpenSSL
-    OS_SPECIFIC_CONFIG="--with-ssl=openssl --with-includes=/opt/homebrew/opt/openssl/include --with-libraries=/opt/homebrew/opt/openssl/lib"
+    # Base configuration with OpenSSL and readline
+    OS_SPECIFIC_CONFIG="--with-ssl=openssl --with-includes=/opt/homebrew/opt/openssl/include:/opt/homebrew/opt/readline/include --with-libraries=/opt/homebrew/opt/openssl/lib:/opt/homebrew/opt/readline/lib"
     
     # Check for ICU4C in Homebrew
     if [ -d "/opt/homebrew/opt/icu4c" ]; then
