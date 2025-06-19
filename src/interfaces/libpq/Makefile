@@ -90,20 +90,32 @@ OBJS += \
 endif
 
 
+# AWS DSQL Auth static libraries - these are embedded into fe-dsql-auth.o only
+AWS_DSQL_AUTH_LIBS = \
+	$(top_srcdir)/aws-dsql-auth/build/libaws-dsql-auth.a \
+	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-auth/libaws-c-auth.a \
+	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-http/libaws-c-http.a \
+	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-io/libaws-c-io.a \
+	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-cal/libaws-c-cal.a \
+	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-sdkutils/libaws-c-sdkutils.a \
+	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-compression/libaws-c-compression.a \
+	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-common/libaws-c-common.a \
+	$(top_srcdir)/aws-dsql-auth/build/aws-lc/ssl/libssl.a \
+	$(top_srcdir)/aws-dsql-auth/build/aws-lc/crypto/libcrypto.a \
+	$(top_srcdir)/aws-dsql-auth/build/lib/libs2n.a
+
+# Custom rule for fe-dsql-auth.o that includes AWS libraries
+fe-dsql-auth.o: fe-dsql-auth.c $(AWS_DSQL_AUTH_LIBS)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c fe-dsql-auth.c -o fe-dsql-auth-temp.o
+	$(LD) -r -o $@ fe-dsql-auth-temp.o $(AWS_DSQL_AUTH_LIBS)
+	rm -f fe-dsql-auth-temp.o
+
 # Add libraries that libpq depends (or might depend) on into the
 # shared library link.  (The order in which you list them here doesn't
 # matter.)  Note that we filter out -lpgcommon and -lpgport from LIBS and
 # instead link with -lpgcommon_shlib and -lpgport_shlib, to get object files
 # that are built correctly for use in a shlib.
-SHLIB_LINK_INTERNAL = -lpgcommon_shlib -lpgport_shlib \
-	-L$(top_srcdir)/aws-dsql-auth/build -laws-dsql-auth \
-	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-common -laws-c-common \
-	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-auth -laws-c-auth \
-	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-io -laws-c-io \
-	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-sdkutils -laws-c-sdkutils \
-	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-cal -laws-c-cal \
-	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-http -laws-c-http \
-	-L$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-compression -laws-c-compression
+SHLIB_LINK_INTERNAL = -lpgcommon_shlib -lpgport_shlib
 ifneq ($(PORTNAME), win32)
 SHLIB_LINK += $(filter -lcrypt -ldes -lcom_err -lcrypto -lk5crypto -lkrb5 -lgssapi_krb5 -lgss -lgssapi -lssl -lsocket -lnsl -lresolv -lintl -lm, $(LIBS)) $(LDAP_LIBS_FE) $(PTHREAD_LIBS)
 
@@ -160,7 +172,7 @@ $(stlib): $(OBJS_STATIC)
 libpq-refs-stamp: $(shlib)
 ifneq ($(enable_coverage), yes)
 ifeq (,$(filter solaris,$(PORTNAME)))
-	@if nm -A -u $< 2>/dev/null | grep -v -e __cxa_atexit -e __tsan_func_exit | grep exit; then \
+	@if nm -A -u $< 2>/dev/null | grep -v -e __cxa_atexit -e __tsan_func_exit | grep -v s2n_disable_atexit | grep exit; then \
 		echo 'libpq must not be calling any function which invokes exit'; exit 1; \
 	fi
 endif
@@ -214,6 +226,6 @@ uninstall: uninstall-lib
 clean distclean: clean-lib
 	$(MAKE) -C test $@
 	rm -rf tmp_check
-	rm -f $(OBJS) $(OBJS_SHLIB) $(OBJS_STATIC) pthread.h libpq-refs-stamp
+	rm -f $(OBJS) $(OBJS_SHLIB) $(OBJS_STATIC) pthread.h libpq-refs-stamp fe-dsql-auth-temp.o
 # Might be left over from a Win32 client-only build
 	rm -f pg_config_paths.h
