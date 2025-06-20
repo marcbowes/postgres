@@ -11,7 +11,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-22.04]
+        os: [macos-latest, ubuntu-22.04, ubuntu-22.04-arm64]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -61,7 +61,7 @@ jobs:
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: postgres-dsql-${{ runner.os }}-${{ runner.arch }}
+          name: postgres-dsql-${{ matrix.os }}-${{ runner.arch }}
           path: build/postgres-dsql.zip
 
       - name: Upload DMG Artifact
@@ -75,7 +75,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: postgres-dsql-rpm-${{ runner.arch }}
+          name: postgres-dsql-rpm-${{ matrix.os }}-${{ runner.arch }}
           path: "build/*.rpm"
 
       - name: Release

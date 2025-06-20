@@ -330,16 +330,33 @@ elif [[ "$PLATFORM" == "linux" ]]; then
     RPM_BUILD_DIR="$BUILD_DIR/rpmbuild"
     mkdir -p "$RPM_BUILD_DIR"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
     
+    # Detect architecture for RPM
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64)
+            RPM_ARCH="x86_64"
+            ;;
+        aarch64)
+            RPM_ARCH="aarch64"
+            ;;
+        arm64)
+            RPM_ARCH="aarch64"
+            ;;
+        *)
+            RPM_ARCH="$ARCH"
+            ;;
+    esac
+    
     # Create spec file
     SPEC_FILE="$RPM_BUILD_DIR/SPECS/postgres-dsql.spec"
-    cat > "$SPEC_FILE" << 'EOF'
+    cat > "$SPEC_FILE" << EOF
 Name:           postgres-dsql
 Version:        1.0.0
 Release:        1%{?dist}
 Summary:        PostgreSQL DSQL client (pdsql) - AWS DSQL authentication enabled psql
 License:        PostgreSQL
 URL:            https://github.com/your-org/postgres-dsql
-BuildArch:      x86_64
+BuildArch:      $RPM_ARCH
 
 %description
 PostgreSQL DSQL client provides pdsql, a PostgreSQL client with AWS DSQL 
