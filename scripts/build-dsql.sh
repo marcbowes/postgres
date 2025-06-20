@@ -45,12 +45,16 @@ else
     echo "  aws-dsql-auth submodules already initialized."
 fi
 
-# Build aws-dsql-auth
-echo "  Building aws-dsql-auth library..."
-cd aws-dsql-auth
-./build.sh
-cd ..
-echo "  AWS DSQL Auth library built successfully!"
+if [ ! -f "aws-dsql-auth/build/aws-dsql-auth/libaws-dsql-auth.a" ]; then
+    # Build aws-dsql-auth
+    echo "  Building aws-dsql-auth library..."
+    cd aws-dsql-auth
+    ./build.sh
+    cd ..
+    echo "  AWS DSQL Auth library built successfully!"
+else
+    echo "  aws-dsql-auth already built."
+fi
 
 # Step 2: Configure PostgreSQL with SSL support
 echo "Step 2: Configuring PostgreSQL with SSL support..."

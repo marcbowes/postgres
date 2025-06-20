@@ -24,16 +24,7 @@ NAME= pq
 SO_MAJOR_VERSION= 5
 SO_MINOR_VERSION= $(MAJORVERSION)
 
-override CPPFLAGS :=  -I$(srcdir) $(CPPFLAGS) -I$(top_builddir)/src/port -I$(top_srcdir)/src/port \
-	-I$(top_srcdir)/aws-dsql-auth/include \
-	-I$(top_srcdir)/aws-dsql-auth/aws-sdk/aws-c-auth/include \
-	-I$(top_srcdir)/aws-dsql-auth/aws-sdk/aws-c-common/include \
-	-I$(top_srcdir)/aws-dsql-auth/aws-sdk/aws-c-io/include \
-	-I$(top_srcdir)/aws-dsql-auth/aws-sdk/aws-c-sdkutils/include \
-	-I$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-common/generated/include \
-	-I$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-auth/generated/include \
-	-I$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-io/generated/include \
-	-I$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-sdkutils/generated/include
+override CPPFLAGS :=  -I$(srcdir) $(CPPFLAGS) -I$(top_builddir)/src/port -I$(top_srcdir)/src/port
 ifneq ($(PORTNAME), win32)
 override CFLAGS += $(PTHREAD_CFLAGS)
 endif
@@ -89,24 +80,12 @@ OBJS += \
 	win32.o
 endif
 
-
-# AWS DSQL Auth static libraries - these are embedded into fe-dsql-auth.o only
-AWS_DSQL_AUTH_LIBS = \
-	$(top_srcdir)/aws-dsql-auth/build/libaws-dsql-auth.a \
-	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-auth/libaws-c-auth.a \
-	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-http/libaws-c-http.a \
-	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-io/libaws-c-io.a \
-	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-cal/libaws-c-cal.a \
-	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-sdkutils/libaws-c-sdkutils.a \
-	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-compression/libaws-c-compression.a \
-	$(top_srcdir)/aws-dsql-auth/build/aws-sdk/aws-c-common/libaws-c-common.a \
-	$(top_srcdir)/aws-dsql-auth/build/aws-lc/ssl/libssl.a \
-	$(top_srcdir)/aws-dsql-auth/build/aws-lc/crypto/libcrypto.a \
-	$(top_srcdir)/aws-dsql-auth/build/lib/libs2n.a
+AWS_DSQL_AUTH_CPPFLAGS := $(addprefix -I,$(shell find $(top_srcdir)/aws-dsql-auth/ -type d -name include))
+AWS_DSQL_AUTH_LIBS := $(shell find $(top_srcdir)/aws-dsql-auth/build/ -type f -name '*.a')
 
 # Custom rule for fe-dsql-auth.o that includes AWS libraries
-fe-dsql-auth.o: fe-dsql-auth.c $(AWS_DSQL_AUTH_LIBS)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c fe-dsql-auth.c -o fe-dsql-auth-temp.o
+fe-dsql-auth.o: fe-dsql-auth.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(AWS_DSQL_AUTH_CPPFLAGS) -c fe-dsql-auth.c -o fe-dsql-auth-temp.o
 	$(LD) -r -o $@ fe-dsql-auth-temp.o $(AWS_DSQL_AUTH_LIBS)
 	rm -f fe-dsql-auth-temp.o
 
