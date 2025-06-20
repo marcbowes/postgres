@@ -32,44 +32,6 @@ elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     
     # Base configuration for Linux with system packages
     OS_SPECIFIC_CONFIG="--with-ssl=openssl --with-icu"
-    
-    # Check if we have the required development packages
-    echo "  Checking for required development packages..."
-    
-    # Check for essential build tools and libraries
-    MISSING_PACKAGES=""
-    
-    if ! dpkg -l | grep -q "libssl-dev\|openssl-dev" 2>/dev/null && ! rpm -qa | grep -q "openssl-devel" 2>/dev/null; then
-        MISSING_PACKAGES="$MISSING_PACKAGES libssl-dev"
-    fi
-    
-    if ! dpkg -l | grep -q "libreadline-dev\|readline-dev" 2>/dev/null && ! rpm -qa | grep -q "readline-devel" 2>/dev/null; then
-        MISSING_PACKAGES="$MISSING_PACKAGES libreadline-dev"
-    fi
-    
-    if ! dpkg -l | grep -q "zlib1g-dev\|zlib-dev" 2>/dev/null && ! rpm -qa | grep -q "zlib-devel" 2>/dev/null; then
-        MISSING_PACKAGES="$MISSING_PACKAGES zlib1g-dev"
-    fi
-    
-    if ! dpkg -l | grep -q "libicu-dev\|icu-dev" 2>/dev/null && ! rpm -qa | grep -q "libicu-devel" 2>/dev/null; then
-        MISSING_PACKAGES="$MISSING_PACKAGES libicu-dev"
-    fi
-    
-    if ! command -v flex >/dev/null 2>&1; then
-        MISSING_PACKAGES="$MISSING_PACKAGES flex"
-    fi
-    
-    if ! command -v bison >/dev/null 2>&1; then
-        MISSING_PACKAGES="$MISSING_PACKAGES bison"
-    fi
-    
-    if [ -n "$MISSING_PACKAGES" ]; then
-        echo "  Warning: Some required packages may be missing: $MISSING_PACKAGES"
-        echo "  On Ubuntu/Debian, install with: sudo apt-get install $MISSING_PACKAGES"
-        echo "  On RHEL/CentOS, install equivalent packages with yum/dnf"
-    else
-        echo "  Required development packages appear to be installed"
-    fi
 else
     echo "Detected Unix system (assuming Linux-like)"
     LIBRARY_PATH_VAR="LD_LIBRARY_PATH"
