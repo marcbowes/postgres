@@ -83,12 +83,11 @@ endif
 AWS_DSQL_AUTH_CPPFLAGS := $(addprefix -I,$(shell find $(top_srcdir)/aws-dsql-auth/ -type d -name include -not -path '*/test*'))
 AWS_DSQL_AUTH_LIBS := $(shell find $(top_srcdir)/aws-dsql-auth/build/ -type f -name '*.a' -not -path '*/test*')
 
-# Custom rule for fe-dsql-auth.o that includes AWS headers (but not libraries)
+# Custom rule for fe-dsql-auth.o that includes AWS libraries
 fe-dsql-auth.o: fe-dsql-auth.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(AWS_DSQL_AUTH_CPPFLAGS) -c fe-dsql-auth.c -o $@
-
-# Add AWS libraries to the shared library link
-SHLIB_LINK += $(AWS_DSQL_AUTH_LIBS)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(AWS_DSQL_AUTH_CPPFLAGS) -c fe-dsql-auth.c -o fe-dsql-auth-temp.o
+	$(LD) -r -o $@ fe-dsql-auth-temp.o $(AWS_DSQL_AUTH_LIBS)
+	rm -f fe-dsql-auth-temp.o
 
 # Add libraries that libpq depends (or might depend) on into the
 # shared library link.  (The order in which you list them here doesn't
