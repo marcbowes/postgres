@@ -99,14 +99,42 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -R artifacts
 
+      - name: Prepare release files
+        run: |
+          mkdir -p release-files
+          
+          # Rename ZIP files to be unique
+          find artifacts -name "postgres-dsql.zip" | while read file; do
+            dir=$(dirname "$file")
+            artifact_name=$(basename "$dir")
+            # Extract platform info from artifact name
+            if [[ "$artifact_name" == *"macos"* ]]; then
+              if [[ "$artifact_name" == *"ARM64"* ]]; then
+                cp "$file" "release-files/postgres-dsql-macos-arm64.zip"
+              else
+                cp "$file" "release-files/postgres-dsql-macos-x64.zip"
+              fi
+            elif [[ "$artifact_name" == *"ubuntu"* ]]; then
+              if [[ "$artifact_name" == *"ARM64"* ]]; then
+                cp "$file" "release-files/postgres-dsql-linux-arm64.zip"
+              else
+                cp "$file" "release-files/postgres-dsql-linux-x64.zip"
+              fi
+            fi
+          done
+          
+          # Copy other files with original names
+          find artifacts -name "*.dmg" -exec cp {} release-files/ \;
+          find artifacts -name "*.rpm" -exec cp {} release-files/ \;
+          find artifacts -name "*.deb" -exec cp {} release-files/ \;
+          
+          echo "Release files prepared:"
+          ls -la release-files/
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            artifacts/**/*.zip
-            artifacts/**/*.dmg
-            artifacts/**/*.rpm
-            artifacts/**/*.deb
+          files: release-files/*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
