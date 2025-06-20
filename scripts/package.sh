@@ -111,6 +111,119 @@ rm -f "$ZIP_NAME"
 (cd "$ROOT_DIR" && zip -r "$ZIP_NAME" "$DIST_NAME")
 
 echo "Package created at $ROOT_DIR/$ZIP_NAME"
+
+# Create RPM package for Linux
+if [[ "$PLATFORM" == "linux" ]]; then
+    echo "Creating RPM package..."
+    
+    # Create RPM build directory structure
+    RPM_BUILD_DIR="$ROOT_DIR/rpmbuild"
+    mkdir -p "$RPM_BUILD_DIR"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+    
+    # Create spec file
+    SPEC_FILE="$RPM_BUILD_DIR/SPECS/postgres-dsql.spec"
+    cat > "$SPEC_FILE" << 'EOF'
+Name:           postgres-dsql
+Version:        1.0.0
+Release:        1%{?dist}
+Summary:        PostgreSQL DSQL client (pdsql) - AWS DSQL authentication enabled psql
+License:        PostgreSQL
+URL:            https://github.com/your-org/postgres-dsql
+BuildArch:      x86_64
+
+%description
+PostgreSQL DSQL client provides pdsql, a PostgreSQL client with AWS DSQL 
+authentication support. This package installs alongside existing PostgreSQL 
+installations without conflicts by using different binary and library names.
+
+%prep
+# No prep needed - files are already prepared
+
+%build
+# No build needed - binaries are already built
+
+%install
+mkdir -p %{buildroot}/opt/postgres-dsql/bin
+mkdir -p %{buildroot}/opt/postgres-dsql/lib
+mkdir -p %{buildroot}/usr/bin
+
+# Install binaries and libraries to /opt to avoid conflicts
+cp %{_sourcedir}/bin/pdsql %{buildroot}/opt/postgres-dsql/bin/
+cp %{_sourcedir}/lib/* %{buildroot}/opt/postgres-dsql/lib/
+
+# Create symlink in /usr/bin for easy access
+ln -s /opt/postgres-dsql/bin/pdsql %{buildroot}/usr/bin/pdsql
+
+%files
+/opt/postgres-dsql/bin/pdsql
+/opt/postgres-dsql/lib/*
+/usr/bin/pdsql
+
+%post
+echo "PostgreSQL DSQL client installed successfully!"
+echo "Use 'pdsql' command to connect to AWS DSQL databases."
+echo "Example: pdsql --dsql --host=your-dsql-endpoint.example.com --user=admin --dbname=postgres"
+
+%changelog
+* $(date +'%a %b %d %Y') Build System <build@example.com> - 1.0.0-1
+- Initial RPM package for PostgreSQL DSQL client
+EOF
+
+    # Copy files to SOURCES directory with the structure expected by the spec
+    mkdir -p "$RPM_BUILD_DIR/SOURCES/bin"
+    mkdir -p "$RPM_BUILD_DIR/SOURCES/lib"
+    cp "$DIST_DIR/bin/pdsql" "$RPM_BUILD_DIR/SOURCES/bin/"
+    cp "$DIST_DIR/lib"/* "$RPM_BUILD_DIR/SOURCES/lib/"
+    
+    # Build the RPM
+    echo "Building RPM package..."
+    if command -v rpmbuild >/dev/null 2>&1; then
+        rpmbuild --define "_topdir $RPM_BUILD_DIR" -bb "$SPEC_FILE"
+        
+        # Find and copy the generated RPM
+        RPM_FILE=$(find "$RPM_BUILD_DIR/RPMS" -name "*.rpm" | head -1)
+        if [ -n "$RPM_FILE" ]; then
+            cp "$RPM_FILE" "$ROOT_DIR/"
+            RPM_NAME=$(basename "$RPM_FILE")
+            echo "RPM package created at $ROOT_DIR/$RPM_NAME"
+        else
+            echo "Warning: RPM file not found after build"
+        fi
+    else
+        echo "Warning: rpmbuild not available. Installing rpm-build..."
+        if command -v yum >/dev/null 2>&1; then
+            sudo yum install -y rpm-build
+        elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y rpm-build
+        elif command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y rpm
+        else
+            echo "Error: Could not install rpm-build. RPM package not created."
+            echo "Please install rpm-build manually and re-run this script."
+        fi
+        
+        # Retry RPM build if rpmbuild is now available
+        if command -v rpmbuild >/dev/null 2>&1; then
+            rpmbuild --define "_topdir $RPM_BUILD_DIR" -bb "$SPEC_FILE"
+            RPM_FILE=$(find "$RPM_BUILD_DIR/RPMS" -name "*.rpm" | head -1)
+            if [ -n "$RPM_FILE" ]; then
+                cp "$RPM_FILE" "$ROOT_DIR/"
+                RPM_NAME=$(basename "$RPM_FILE")
+                echo "RPM package created at $ROOT_DIR/$RPM_NAME"
+            fi
+        fi
+    fi
+    
+    echo ""
+    echo "RPM Installation Instructions:"
+    echo "  sudo rpm -ivh $RPM_NAME"
+    echo "  # Or to upgrade: sudo rpm -Uvh $RPM_NAME"
+    echo ""
+    echo "RPM Removal Instructions:"
+    echo "  sudo rpm -e postgres-dsql"
+    echo ""
+fi
+
 echo "Done!"
 
 # For testing, you can:
@@ -119,3 +232,7 @@ echo "Done!"
 #
 # On Linux, you may also need to ensure the library path is set:
 # LD_LIBRARY_PATH=/tmp/postgres-dsql/lib /tmp/postgres-dsql/bin/pdsql --version
+#
+# For RPM testing:
+# sudo rpm -ivh postgres-dsql-*.rpm
+# pdsql --version
