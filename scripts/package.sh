@@ -10,8 +10,9 @@ echo "================================"
 
 # Path setup
 ROOT_DIR=$(pwd)
+BUILD_DIR="$ROOT_DIR/build"
 DIST_NAME="postgres-dsql"
-DIST_DIR="$ROOT_DIR/$DIST_NAME"
+DIST_DIR="$BUILD_DIR/$DIST_NAME"
 SRC_BIN="$ROOT_DIR/src/bin/psql/psql"
 BINARY_NAME="pdsql"
 
@@ -44,6 +45,9 @@ if [ ! -f "$SRC_LIB" ]; then
     echo "Please run scripts/build-dsql.sh first"
     exit 1
 fi
+
+# Create build directory
+mkdir -p "$BUILD_DIR"
 
 # Clean any previous packaging attempts
 if [ -d "$DIST_DIR" ]; then
@@ -107,17 +111,223 @@ fi
 # Create a ZIP archive
 echo "Creating ZIP archive..."
 ZIP_NAME="${DIST_NAME}.zip"
-rm -f "$ZIP_NAME"
-(cd "$ROOT_DIR" && zip -r "$ZIP_NAME" "$DIST_NAME")
+ZIP_PATH="$BUILD_DIR/$ZIP_NAME"
+rm -f "$ZIP_PATH"
+(cd "$BUILD_DIR" && zip -r "$ZIP_NAME" "$DIST_NAME")
 
-echo "Package created at $ROOT_DIR/$ZIP_NAME"
+echo "Package created at $ZIP_PATH"
 
-# Create RPM package for Linux
-if [[ "$PLATFORM" == "linux" ]]; then
+# Create platform-specific installers
+if [[ "$PLATFORM" == "macos" ]]; then
+    echo "Creating DMG package for macOS..."
+    
+    # Create a temporary directory for DMG contents
+    DMG_DIR="$BUILD_DIR/dmg_temp"
+    rm -rf "$DMG_DIR"
+    mkdir -p "$DMG_DIR"
+    
+    # Create the application bundle structure
+    APP_NAME="PostgreSQL DSQL.app"
+    APP_DIR="$DMG_DIR/$APP_NAME"
+    mkdir -p "$APP_DIR/Contents/MacOS"
+    mkdir -p "$APP_DIR/Contents/Resources"
+    
+    # Copy binaries and libraries to the app bundle
+    cp -r "$DIST_DIR/bin" "$APP_DIR/Contents/MacOS/"
+    cp -r "$DIST_DIR/lib" "$APP_DIR/Contents/MacOS/"
+    
+    # Create Info.plist for the app bundle
+    cat > "$APP_DIR/Contents/Info.plist" << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>pdsql</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.aws.postgres-dsql</string>
+    <key>CFBundleName</key>
+    <string>PostgreSQL DSQL</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.15</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
+</dict>
+</plist>
+EOF
+    
+    # Create a simple installer script
+    INSTALLER_SCRIPT="$DMG_DIR/Install PostgreSQL DSQL.command"
+    cat > "$INSTALLER_SCRIPT" << 'EOF'
+#!/bin/bash
+set -e
+
+echo "Installing PostgreSQL DSQL..."
+echo "=============================="
+
+# Installation directory
+INSTALL_DIR="/opt/postgres-dsql"
+BIN_LINK="/usr/local/bin/pdsql"
+
+# Check for admin privileges
+if [ "$EUID" -ne 0 ]; then
+    echo "This installer requires administrator privileges."
+    echo "Please run with sudo or enter your password when prompted."
+    exec sudo "$0" "$@"
+fi
+
+# Create installation directory
+echo "Creating installation directory at $INSTALL_DIR..."
+mkdir -p "$INSTALL_DIR"
+
+# Get the directory where this script is located (inside the DMG)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$SCRIPT_DIR/PostgreSQL DSQL.app"
+
+# Copy files from the app bundle
+echo "Installing PostgreSQL DSQL files..."
+cp -r "$APP_DIR/Contents/MacOS/bin" "$INSTALL_DIR/"
+cp -r "$APP_DIR/Contents/MacOS/lib" "$INSTALL_DIR/"
+
+# Create symlink for easy access
+echo "Creating symlink at $BIN_LINK..."
+mkdir -p "$(dirname "$BIN_LINK")"
+ln -sf "$INSTALL_DIR/bin/pdsql" "$BIN_LINK"
+
+# Set proper permissions
+chmod +x "$INSTALL_DIR/bin/pdsql"
+
+echo ""
+echo "Installation completed successfully!"
+echo ""
+echo "PostgreSQL DSQL has been installed to: $INSTALL_DIR"
+echo "You can now use the 'pdsql' command from anywhere in your terminal."
+echo ""
+echo "Example usage:"
+echo "  pdsql --dsql --host=your-dsql-endpoint.example.com --user=admin --dbname=postgres"
+echo ""
+echo "To uninstall, run:"
+echo "  sudo rm -rf $INSTALL_DIR"
+echo "  sudo rm -f $BIN_LINK"
+echo ""
+
+read -p "Press Enter to close this window..."
+EOF
+    
+    chmod +x "$INSTALLER_SCRIPT"
+    
+    # Create an uninstaller script
+    UNINSTALLER_SCRIPT="$DMG_DIR/Uninstall PostgreSQL DSQL.command"
+    cat > "$UNINSTALLER_SCRIPT" << 'EOF'
+#!/bin/bash
+set -e
+
+echo "Uninstalling PostgreSQL DSQL..."
+echo "================================"
+
+INSTALL_DIR="/opt/postgres-dsql"
+BIN_LINK="/usr/local/bin/pdsql"
+
+# Check for admin privileges
+if [ "$EUID" -ne 0 ]; then
+    echo "This uninstaller requires administrator privileges."
+    echo "Please run with sudo or enter your password when prompted."
+    exec sudo "$0" "$@"
+fi
+
+# Remove installation directory
+if [ -d "$INSTALL_DIR" ]; then
+    echo "Removing installation directory..."
+    rm -rf "$INSTALL_DIR"
+    echo "Removed $INSTALL_DIR"
+else
+    echo "Installation directory not found: $INSTALL_DIR"
+fi
+
+# Remove symlink
+if [ -L "$BIN_LINK" ]; then
+    echo "Removing symlink..."
+    rm -f "$BIN_LINK"
+    echo "Removed $BIN_LINK"
+else
+    echo "Symlink not found: $BIN_LINK"
+fi
+
+echo ""
+echo "PostgreSQL DSQL has been completely uninstalled."
+echo ""
+
+read -p "Press Enter to close this window..."
+EOF
+    
+    chmod +x "$UNINSTALLER_SCRIPT"
+    
+    # Create a README file
+    cat > "$DMG_DIR/README.txt" << 'EOF'
+PostgreSQL DSQL Client
+======================
+
+This package contains the PostgreSQL DSQL client (pdsql) with AWS DSQL authentication support.
+
+Installation:
+1. Double-click "Install PostgreSQL DSQL.command"
+2. Enter your administrator password when prompted
+3. The pdsql command will be available system-wide
+
+The client will be installed to /opt/postgres-dsql/ and a symlink will be created at /usr/local/bin/pdsql
+
+This installation will NOT interfere with any existing PostgreSQL installations on your system.
+
+Usage:
+  pdsql --dsql --host=your-dsql-endpoint.example.com --user=admin --dbname=postgres
+
+Uninstallation:
+  Double-click "Uninstall PostgreSQL DSQL.command"
+
+For more information, visit: https://docs.aws.amazon.com/aurora-dsql/
+EOF
+    
+    # Create the DMG
+    DMG_NAME="postgres-dsql-installer.dmg"
+    DMG_PATH="$BUILD_DIR/$DMG_NAME"
+    echo "Creating DMG file..."
+    
+    # Remove any existing DMG
+    rm -f "$DMG_PATH"
+    
+    # Create DMG using hdiutil
+    hdiutil create -volname "PostgreSQL DSQL Installer" \
+                   -srcfolder "$DMG_DIR" \
+                   -ov -format UDZO \
+                   "$DMG_PATH"
+    
+    # Clean up temporary directory
+    rm -rf "$DMG_DIR"
+    
+    echo "DMG package created at $DMG_PATH"
+    echo ""
+    echo "DMG Installation Instructions:"
+    echo "  1. Double-click $DMG_NAME to mount"
+    echo "  2. Double-click 'Install PostgreSQL DSQL.command'"
+    echo "  3. Enter your administrator password"
+    echo "  4. Use 'pdsql' command from anywhere"
+    echo ""
+    echo "DMG Uninstallation Instructions:"
+    echo "  1. Mount the DMG again"
+    echo "  2. Double-click 'Uninstall PostgreSQL DSQL.command'"
+    echo ""
+
+elif [[ "$PLATFORM" == "linux" ]]; then
     echo "Creating RPM package..."
     
     # Create RPM build directory structure
-    RPM_BUILD_DIR="$ROOT_DIR/rpmbuild"
+    RPM_BUILD_DIR="$BUILD_DIR/rpmbuild"
     mkdir -p "$RPM_BUILD_DIR"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
     
     # Create spec file
@@ -183,9 +393,9 @@ EOF
         # Find and copy the generated RPM
         RPM_FILE=$(find "$RPM_BUILD_DIR/RPMS" -name "*.rpm" | head -1)
         if [ -n "$RPM_FILE" ]; then
-            cp "$RPM_FILE" "$ROOT_DIR/"
+            cp "$RPM_FILE" "$BUILD_DIR/"
             RPM_NAME=$(basename "$RPM_FILE")
-            echo "RPM package created at $ROOT_DIR/$RPM_NAME"
+            echo "RPM package created at $BUILD_DIR/$RPM_NAME"
         else
             echo "Warning: RPM file not found after build"
         fi
@@ -207,9 +417,9 @@ EOF
             rpmbuild --define "_topdir $RPM_BUILD_DIR" -bb "$SPEC_FILE"
             RPM_FILE=$(find "$RPM_BUILD_DIR/RPMS" -name "*.rpm" | head -1)
             if [ -n "$RPM_FILE" ]; then
-                cp "$RPM_FILE" "$ROOT_DIR/"
+                cp "$RPM_FILE" "$BUILD_DIR/"
                 RPM_NAME=$(basename "$RPM_FILE")
-                echo "RPM package created at $ROOT_DIR/$RPM_NAME"
+                echo "RPM package created at $BUILD_DIR/$RPM_NAME"
             fi
         fi
     fi
@@ -227,12 +437,12 @@ fi
 echo "Done!"
 
 # For testing, you can:
-# unzip -o postgres-dsql.zip -d /tmp
+# unzip -o build/postgres-dsql.zip -d /tmp
 # /tmp/postgres-dsql/bin/pdsql --version
 #
 # On Linux, you may also need to ensure the library path is set:
 # LD_LIBRARY_PATH=/tmp/postgres-dsql/lib /tmp/postgres-dsql/bin/pdsql --version
 #
 # For RPM testing:
-# sudo rpm -ivh postgres-dsql-*.rpm
+# sudo rpm -ivh build/postgres-dsql-*.rpm
 # pdsql --version
