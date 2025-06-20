@@ -24,7 +24,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew update
-          brew install openssl@3 icu4c zip readline
+          brew install openssl@3 icu4c zip readline go
 
       - name: Set up Ubuntu
         if: runner.os == 'Linux'
