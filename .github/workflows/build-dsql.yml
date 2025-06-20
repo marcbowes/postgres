@@ -78,6 +78,13 @@ jobs:
           name: postgres-dsql-rpm-${{ matrix.os }}-${{ runner.arch }}
           path: "build/*.rpm"
 
+      - name: Upload DEB Artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-dsql-deb-${{ matrix.os }}-${{ runner.arch }}
+          path: "build/*.deb"
+
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
@@ -86,5 +93,6 @@ jobs:
             build/postgres-dsql.zip
             build/*.dmg
             build/*.rpm
+            build/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

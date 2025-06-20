@@ -389,7 +389,7 @@ ln -s /opt/postgres-dsql/bin/pdsql %{buildroot}/usr/bin/pdsql
 %post
 echo "PostgreSQL DSQL client installed successfully!"
 echo "Use 'pdsql' command to connect to AWS DSQL databases."
-echo "Example: pdsql --dsql --host=your-dsql-endpoint.example.com --user=admin --dbname=postgres"
+echo "Example: pdsql --host=your-dsql-endpoint.example.com --user=admin --dbname=postgres"
 
 %changelog
 * $(date +'%a %b %d %Y') Build System <build@example.com> - 1.0.0-1
@@ -448,6 +448,86 @@ EOF
     echo ""
     echo "RPM Removal Instructions:"
     echo "  sudo rpm -e postgres-dsql"
+    echo ""
+    
+    # Create DEB package
+    echo "Creating DEB package..."
+    
+    # Detect architecture for DEB
+    case "$ARCH" in
+        x86_64)
+            DEB_ARCH="amd64"
+            ;;
+        aarch64)
+            DEB_ARCH="arm64"
+            ;;
+        arm64)
+            DEB_ARCH="arm64"
+            ;;
+        *)
+            DEB_ARCH="$ARCH"
+            ;;
+    esac
+    
+    # Create DEB build directory structure
+    DEB_BUILD_DIR="$BUILD_DIR/debbuild"
+    DEB_PKG_DIR="$DEB_BUILD_DIR/postgres-dsql_1.0.0-1_$DEB_ARCH"
+    mkdir -p "$DEB_PKG_DIR"/{DEBIAN,opt/postgres-dsql/{bin,lib},usr/bin}
+    
+    # Copy files
+    cp "$DIST_DIR/bin/pdsql" "$DEB_PKG_DIR/opt/postgres-dsql/bin/"
+    cp "$DIST_DIR/lib"/* "$DEB_PKG_DIR/opt/postgres-dsql/lib/"
+    
+    # Create symlink
+    ln -s /opt/postgres-dsql/bin/pdsql "$DEB_PKG_DIR/usr/bin/pdsql"
+    
+    # Create control file
+    cat > "$DEB_PKG_DIR/DEBIAN/control" << EOF
+Package: postgres-dsql
+Version: 1.0.0-1
+Section: database
+Priority: optional
+Architecture: $DEB_ARCH
+Maintainer: Build System <build@example.com>
+Description: PostgreSQL DSQL client (pdsql) - AWS DSQL authentication enabled psql
+ PostgreSQL DSQL client provides pdsql, a PostgreSQL client with AWS DSQL 
+ authentication support. This package installs alongside existing PostgreSQL 
+ installations without conflicts by using different binary and library names.
+Homepage: https://github.com/your-org/postgres-dsql
+EOF
+    
+    # Create postinst script
+    cat > "$DEB_PKG_DIR/DEBIAN/postinst" << 'EOF'
+#!/bin/bash
+echo "PostgreSQL DSQL client installed successfully!"
+echo "Use 'pdsql' command to connect to AWS DSQL databases."
+echo "Example: pdsql --host=your-dsql-endpoint.example.com --user=admin --dbname=postgres"
+EOF
+    chmod 755 "$DEB_PKG_DIR/DEBIAN/postinst"
+    
+    # Build the DEB package
+    echo "Building DEB package..."
+    if command -v dpkg-deb >/dev/null 2>&1; then
+        dpkg-deb --build "$DEB_PKG_DIR"
+        DEB_FILE="$DEB_PKG_DIR.deb"
+        if [ -f "$DEB_FILE" ]; then
+            mv "$DEB_FILE" "$BUILD_DIR/"
+            DEB_NAME=$(basename "$DEB_FILE")
+            echo "DEB package created at $BUILD_DIR/$DEB_NAME"
+        else
+            echo "Warning: DEB file not found after build"
+        fi
+    else
+        echo "Warning: dpkg-deb not available. DEB package not created."
+    fi
+    
+    echo ""
+    echo "DEB Installation Instructions:"
+    echo "  sudo dpkg -i $DEB_NAME"
+    echo "  # Or: sudo apt install ./$DEB_NAME"
+    echo ""
+    echo "DEB Removal Instructions:"
+    echo "  sudo apt remove postgres-dsql"
     echo ""
 fi
 
