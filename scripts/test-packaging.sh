@@ -29,12 +29,12 @@ fi
 
 # Test the packaged binary
 echo "Testing packaged binary..."
-if [ -f "postgres-dsql.zip" ]; then
+if [ -f "build/postgres-dsql.zip" ]; then
     # Clean any previous test
     rm -rf /tmp/postgres-dsql
     
     # Extract and test
-    unzip -o postgres-dsql.zip -d /tmp
+    unzip -o build/postgres-dsql.zip -d /tmp
     
     echo "Running pdsql --version to verify:"
     /tmp/postgres-dsql/bin/pdsql --version
@@ -46,7 +46,7 @@ if [ -f "postgres-dsql.zip" ]; then
         exit 1
     fi
 else
-    echo "❌ Package file not found!"
+    echo "❌ Package file not found at build/postgres-dsql.zip!"
     exit 1
 fi
 

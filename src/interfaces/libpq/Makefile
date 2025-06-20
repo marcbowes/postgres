@@ -86,7 +86,11 @@ AWS_DSQL_AUTH_LIBS := $(shell find $(top_srcdir)/aws-dsql-auth/build/ -type f -n
 # Custom rule for fe-dsql-auth.o that includes AWS libraries
 fe-dsql-auth.o: fe-dsql-auth.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(AWS_DSQL_AUTH_CPPFLAGS) -c fe-dsql-auth.c -o fe-dsql-auth-temp.o
+ifeq ($(PORTNAME), linux)
 	$(LD) -r -o $@ fe-dsql-auth-temp.o --whole-archive $(AWS_DSQL_AUTH_LIBS)
+else
+	$(LD) -r -o $@ fe-dsql-auth-temp.o $(AWS_DSQL_AUTH_LIBS)
+endif
 	rm -f fe-dsql-auth-temp.o
 
 # Add libraries that libpq depends (or might depend) on into the
