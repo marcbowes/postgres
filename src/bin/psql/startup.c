@@ -219,7 +219,6 @@ main(int argc, char *argv[])
 	
 	if (pset.dsql)
 	{
-		setenv("PGSSLMODE", "require", 0);
 		setenv("PGDSQL", "1", 1);
 		pset.getPassword = TRI_NO;
 	}

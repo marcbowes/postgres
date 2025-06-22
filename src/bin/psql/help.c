@@ -57,9 +57,9 @@ usage(unsigned short int pager)
 	 */
 	initPQExpBuffer(&buf);
 
-	HELP0("psql is the PostgreSQL interactive terminal.\n\n");
+	HELP0("psql (with DSQL support) is the PostgreSQL interactive terminal.\n\n");
 	HELP0("Usage:\n");
-	HELP0("  psql [OPTION]... [DBNAME [USERNAME]]\n\n");
+	HELP0("  pdsql [OPTION]... [DBNAME [USERNAME]]\n\n");
 
 	HELP0("General options:\n");
 	HELP0("  -c, --command=COMMAND    run only single command (SQL or internal) and exit\n");

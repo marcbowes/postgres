@@ -281,11 +281,11 @@ static const internalPQconninfoOption PQconninfoOptions[] = {
 	 * parameters have no effect on non-SSL connections, so there is no reason
 	 * to exclude them since none of them are mandatory.
 	 */
-	{"sslmode", "PGSSLMODE", DefaultSSLMode, NULL,
+	{"sslmode", "PGSSLMODE", "verify-full", NULL,
 		"SSL-Mode", "", 12,		/* sizeof("verify-full") == 12 */
 	offsetof(struct pg_conn, sslmode)},
 
-	{"sslnegotiation", "PGSSLNEGOTIATION", DefaultSSLNegotiation, NULL,
+	{"sslnegotiation", "PGSSLNEGOTIATION", "direct", NULL,
 		"SSL-Negotiation", "", 9,	/* sizeof("postgres") == 9  */
 	offsetof(struct pg_conn, sslnegotiation)},
 
@@ -309,7 +309,7 @@ static const internalPQconninfoOption PQconninfoOptions[] = {
 		"SSL-Client-Key-Password", "*", 20,
 	offsetof(struct pg_conn, sslpassword)},
 
-	{"sslrootcert", "PGSSLROOTCERT", NULL, NULL,
+	{"sslrootcert", "PGSSLROOTCERT", "system", NULL,
 		"SSL-Root-Certificate", "", 64,
 	offsetof(struct pg_conn, sslrootcert)},
 
