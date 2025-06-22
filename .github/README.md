@@ -7,7 +7,7 @@ A PostgreSQL command-line client with built-in AWS DSQL authentication support. 
 Install `pdsql` with a single command:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/marcbowes/postgres/main/scripts/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/marcbowes/postgres/refs/heads/master/scripts/install.sh | sh
 ```
 
 This installer automatically detects your platform (macOS/Linux) and architecture, downloads the appropriate package, and installs `pdsql` to your local environment.
@@ -176,7 +176,7 @@ pdsql --help
 To update to the latest version, simply run the installation command again:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/marcbowes/postgres/main/scripts/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/marcbowes/postgres/refs/heads/master/scripts/install.sh | sh
 ```
 
 ## 🏗️ Building from Source
