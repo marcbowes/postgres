@@ -37,7 +37,7 @@ EXPLAIN (DEBUG) SELECT 1;
    Subplans Needing Rewind: none
    Relation OIDs: none
    Executor Parameter Types: none
-   Parse Location: 16 for 8 bytes
+   Parse Location: 0 to end
 (11 rows)
 
 EXPLAIN (RANGE_TABLE) SELECT 1;
@@ -436,7 +436,7 @@ $$);
    Subplans Needing Rewind: none
    Relation OIDs: NNN...
    Executor Parameter Types: 23
-   Parse Location: 75 for 62 bytes
+   Parse Location: 0 to end
 (47 rows)
 
 RESET enable_hashjoin;

@@ -3330,87 +3330,85 @@ _bt_checkkeys_look_ahead(IndexScanDesc scan, BTReadPageState *pstate,
  * current page and killed tuples thereon (generally, this should only be
  * called if so->numKilled > 0).
  *
- * The caller does not have a lock on the page and may or may not have the
- * page pinned in a buffer.  Note that read-lock is sufficient for setting
- * LP_DEAD status (which is only a hint).
+ * Caller should not have a lock on the so->currPos page, but must hold a
+ * buffer pin when !so->dropPin.  When we return, it still won't be locked.
+ * It'll continue to hold whatever pins were held before calling here.
  *
- * We match items by heap TID before assuming they are the right ones to
- * delete.  We cope with cases where items have moved right due to insertions.
- * If an item has moved off the current page due to a split, we'll fail to
- * find it and do nothing (this is not an error case --- we assume the item
- * will eventually get marked in a future indexscan).
+ * We match items by heap TID before assuming they are the right ones to set
+ * LP_DEAD.  If the scan is one that holds a buffer pin on the target page
+ * continuously from initially reading the items until applying this function
+ * (if it is a !so->dropPin scan), VACUUM cannot have deleted any items on the
+ * page, so the page's TIDs can't have been recycled by now.  There's no risk
+ * that we'll confuse a new index tuple that happens to use a recycled TID
+ * with a now-removed tuple with the same TID (that used to be on this same
+ * page).  We can't rely on that during scans that drop buffer pins eagerly
+ * (so->dropPin scans), though, so we must condition setting LP_DEAD bits on
+ * the page LSN having not changed since back when _bt_readpage saw the page.
+ * We totally give up on setting LP_DEAD bits when the page LSN changed.
  *
- * Note that if we hold a pin on the target page continuously from initially
- * reading the items until applying this function, VACUUM cannot have deleted
- * any items from the page, and so there is no need to search left from the
- * recorded offset.  (This observation also guarantees that the item is still
- * the right one to delete, which might otherwise be questionable since heap
- * TIDs can get recycled.)	This holds true even if the page has been modified
- * by inserts and page splits, so there is no need to consult the LSN.
- *
- * If the pin was released after reading the page, then we re-read it.  If it
- * has been modified since we read it (as determined by the LSN), we dare not
- * flag any entries because it is possible that the old entry was vacuumed
- * away and the TID was re-used by a completely different heap tuple.
+ * We give up much less often during !so->dropPin scans, but it still happens.
+ * We cope with cases where items have moved right due to insertions.  If an
+ * item has moved off the current page due to a split, we'll fail to find it
+ * and just give up on it.
  */
 void
 _bt_killitems(IndexScanDesc scan)
 {
+	Relation	rel = scan->indexRelation;
 	BTScanOpaque so = (BTScanOpaque) scan->opaque;
 	Page		page;
 	BTPageOpaque opaque;
 	OffsetNumber minoff;
 	OffsetNumber maxoff;
-	int			i;
 	int			numKilled = so->numKilled;
 	bool		killedsomething = false;
-	bool		droppedpin PG_USED_FOR_ASSERTS_ONLY;
+	Buffer		buf;
 
+	Assert(numKilled > 0);
 	Assert(BTScanPosIsValid(so->currPos));
+	Assert(scan->heapRelation != NULL); /* can't be a bitmap index scan */
 
-	/*
-	 * Always reset the scan state, so we don't look for same items on other
-	 * pages.
-	 */
+	/* Always invalidate so->killedItems[] before leaving so->currPos */
 	so->numKilled = 0;
 
-	if (BTScanPosIsPinned(so->currPos))
+	if (!so->dropPin)
 	{
 		/*
 		 * We have held the pin on this page since we read the index tuples,
 		 * so all we need to do is lock it.  The pin will have prevented
-		 * re-use of any TID on the page, so there is no need to check the
-		 * LSN.
+		 * concurrent VACUUMs from recycling any of the TIDs on the page.
 		 */
-		droppedpin = false;
-		_bt_lockbuf(scan->indexRelation, so->currPos.buf, BT_READ);
-
-		page = BufferGetPage(so->currPos.buf);
+		Assert(BTScanPosIsPinned(so->currPos));
+		buf = so->currPos.buf;
+		_bt_lockbuf(rel, buf, BT_READ);
 	}
 	else
 	{
-		Buffer		buf;
+		XLogRecPtr	latestlsn;
 
-		droppedpin = true;
-		/* Attempt to re-read the buffer, getting pin and lock. */
-		buf = _bt_getbuf(scan->indexRelation, so->currPos.currPage, BT_READ);
+		Assert(!BTScanPosIsPinned(so->currPos));
+		Assert(RelationNeedsWAL(rel));
+		buf = _bt_getbuf(rel, so->currPos.currPage, BT_READ);
 
-		page = BufferGetPage(buf);
-		if (BufferGetLSNAtomic(buf) == so->currPos.lsn)
-			so->currPos.buf = buf;
-		else
+		latestlsn = BufferGetLSNAtomic(buf);
+		Assert(!XLogRecPtrIsInvalid(so->currPos.lsn));
+		Assert(so->currPos.lsn <= latestlsn);
+		if (so->currPos.lsn != latestlsn)
 		{
-			/* Modified while not pinned means hinting is not safe. */
-			_bt_relbuf(scan->indexRelation, buf);
+			/* Modified, give up on hinting */
+			_bt_relbuf(rel, buf);
 			return;
 		}
+
+		/* Unmodified, hinting is safe */
 	}
 
+	page = BufferGetPage(buf);
 	opaque = BTPageGetOpaque(page);
 	minoff = P_FIRSTDATAKEY(opaque);
 	maxoff = PageGetMaxOffsetNumber(page);
 
-	for (i = 0; i < numKilled; i++)
+	for (int i = 0; i < numKilled; i++)
 	{
 		int			itemIndex = so->killedItems[i];
 		BTScanPosItem *kitem = &so->currPos.items[itemIndex];
@@ -3442,7 +3440,7 @@ _bt_killitems(IndexScanDesc scan)
 				 * correctness.
 				 *
 				 * Note that the page may have been modified in almost any way
-				 * since we first read it (in the !droppedpin case), so it's
+				 * since we first read it (in the !so->dropPin case), so it's
 				 * possible that this posting list tuple wasn't a posting list
 				 * tuple when we first encountered its heap TIDs.
 				 */
@@ -3458,7 +3456,7 @@ _bt_killitems(IndexScanDesc scan)
 					 * though only in the common case where the page can't
 					 * have been concurrently modified
 					 */
-					Assert(kitem->indexOffset == offnum || !droppedpin);
+					Assert(kitem->indexOffset == offnum || !so->dropPin);
 
 					/*
 					 * Read-ahead to later kitems here.
@@ -3522,10 +3520,13 @@ _bt_killitems(IndexScanDesc scan)
 	if (killedsomething)
 	{
 		opaque->btpo_flags |= BTP_HAS_GARBAGE;
-		MarkBufferDirtyHint(so->currPos.buf, true);
+		MarkBufferDirtyHint(buf, true);
 	}
 
-	_bt_unlockbuf(scan->indexRelation, so->currPos.buf);
+	if (!so->dropPin)
+		_bt_unlockbuf(rel, buf);
+	else
+		_bt_relbuf(rel, buf);
 }
 
 

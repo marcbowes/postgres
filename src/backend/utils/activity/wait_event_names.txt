@@ -161,7 +161,6 @@ WAL_RECEIVER_EXIT	"Waiting for the WAL receiver to exit."
 WAL_RECEIVER_WAIT_START	"Waiting for startup process to send initial data for streaming replication."
 WAL_SUMMARY_READY	"Waiting for a new WAL summary to be generated."
 XACT_GROUP_UPDATE	"Waiting for the group leader to update transaction status at transaction end."
-MEM_CXT_PUBLISH	"Waiting for a process to publish memory information."
 
 ABI_compatibility:
 
@@ -402,6 +401,7 @@ SerialSLRU	"Waiting to access the serializable transaction conflict SLRU cache."
 SubtransSLRU	"Waiting to access the sub-transaction SLRU cache."
 XactSLRU	"Waiting to access the transaction status SLRU cache."
 ParallelVacuumDSA	"Waiting for parallel vacuum dynamic shared memory allocation."
+AioUringCompletion	"Waiting for another process to complete IO via io_uring."
 
 # No "ABI_compatibility" region here as WaitEventLWLock has its own C code.
 

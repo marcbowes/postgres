@@ -253,7 +253,8 @@ slashUsage(unsigned short int pager)
 	HELP0("  \\dO[Sx+] [PATTERN]     list collations\n");
 	HELP0("  \\dp[Sx]  [PATTERN]     list table, view, and sequence access privileges\n");
 	HELP0("  \\dP[itnx+] [PATTERN]   list [only index/table] partitioned relations [n=nested]\n");
-	HELP0("  \\drds[x] [ROLEPTRN [DBPTRN]] list per-database role settings\n");
+	HELP0("  \\drds[x] [ROLEPTRN [DBPTRN]]\n"
+		  "                         list per-database role settings\n");
 	HELP0("  \\drg[Sx] [PATTERN]     list role grants\n");
 	HELP0("  \\dRp[x+] [PATTERN]     list replication publications\n");
 	HELP0("  \\dRs[x+] [PATTERN]     list replication subscriptions\n");
@@ -335,8 +336,7 @@ slashUsage(unsigned short int pager)
 	HELP0("  \\endpipeline           exit pipeline mode\n");
 	HELP0("  \\flush                 flush output data to the server\n");
 	HELP0("  \\flushrequest          send request to the server to flush its output buffer\n");
-	HELP0("  \\getresults [NUM_RES]  read NUM_RES pending results. All pending results are\n"
-		  "                         read if no argument is provided\n");
+	HELP0("  \\getresults [NUM_RES]  read NUM_RES pending results, or all if no argument\n");
 	HELP0("  \\parse STMT_NAME       create a prepared statement\n");
 	HELP0("  \\sendpipeline          send an extended query to an ongoing pipeline\n");
 	HELP0("  \\startpipeline         enter pipeline mode\n");
@@ -464,8 +464,9 @@ helpVariables(unsigned short int pager)
 		  "  VERSION_NAME\n"
 		  "  VERSION_NUM\n"
 		  "    psql's version (in verbose string, short string, or numeric format)\n");
-	HELP0("  WATCH_INTERVAL\n"
-		  "    if set to a number, overrides the default two second \\watch interval\n");
+	HELPN("  WATCH_INTERVAL\n"
+		  "    number of seconds \\watch waits between executions (default %s)\n",
+		  DEFAULT_WATCH_INTERVAL);
 
 	HELP0("\nDisplay settings:\n");
 	HELP0("Usage:\n");

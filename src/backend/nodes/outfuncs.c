@@ -51,6 +51,12 @@ static void outDouble(StringInfo str, double d);
 #define WRITE_UINT_FIELD(fldname) \
 	appendStringInfo(str, " :" CppAsString(fldname) " %u", node->fldname)
 
+/* Write a signed integer field (anything written with INT64_FORMAT) */
+#define WRITE_INT64_FIELD(fldname) \
+	appendStringInfo(str, \
+					 " :" CppAsString(fldname) " " INT64_FORMAT, \
+					 node->fldname)
+
 /* Write an unsigned integer field (anything written with UINT64_FORMAT) */
 #define WRITE_UINT64_FIELD(fldname) \
 	appendStringInfo(str, " :" CppAsString(fldname) " " UINT64_FORMAT, \
@@ -647,6 +653,8 @@ _outA_Expr(StringInfo str, const A_Expr *node)
 
 	WRITE_NODE_FIELD(lexpr);
 	WRITE_NODE_FIELD(rexpr);
+	WRITE_LOCATION_FIELD(rexpr_list_start);
+	WRITE_LOCATION_FIELD(rexpr_list_end);
 	WRITE_LOCATION_FIELD(location);
 }
 

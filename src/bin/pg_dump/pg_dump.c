@@ -1235,7 +1235,7 @@ main(int argc, char **argv)
 static void
 help(const char *progname)
 {
-	printf(_("%s dumps a database as a text file or to other formats.\n\n"), progname);
+	printf(_("%s exports a PostgreSQL database as an SQL script or to other formats.\n\n"), progname);
 	printf(_("Usage:\n"));
 	printf(_("  %s [OPTION]... [DBNAME]\n"), progname);
 
@@ -6890,7 +6890,8 @@ getRelationStatistics(Archive *fout, DumpableObject *rel, int32 relpages,
 		(relkind == RELKIND_PARTITIONED_TABLE) ||
 		(relkind == RELKIND_INDEX) ||
 		(relkind == RELKIND_PARTITIONED_INDEX) ||
-		(relkind == RELKIND_MATVIEW))
+		(relkind == RELKIND_MATVIEW ||
+		 relkind == RELKIND_FOREIGN_TABLE))
 	{
 		RelStatsInfo *info = pg_malloc0(sizeof(RelStatsInfo));
 		DumpableObject *dobj = &info->dobj;
@@ -6929,6 +6930,7 @@ getRelationStatistics(Archive *fout, DumpableObject *rel, int32 relpages,
 			case RELKIND_RELATION:
 			case RELKIND_PARTITIONED_TABLE:
 			case RELKIND_MATVIEW:
+			case RELKIND_FOREIGN_TABLE:
 				info->section = SECTION_DATA;
 				break;
 			case RELKIND_INDEX:
@@ -6936,7 +6938,7 @@ getRelationStatistics(Archive *fout, DumpableObject *rel, int32 relpages,
 				info->section = SECTION_POST_DATA;
 				break;
 			default:
-				pg_fatal("cannot dump statistics for relation kind '%c'",
+				pg_fatal("cannot dump statistics for relation kind \"%c\"",
 						 info->relkind);
 		}
 
@@ -9461,7 +9463,7 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 		int			i_consrc;
 		int			i_conislocal;
 
-		pg_log_info("finding invalid not null constraints");
+		pg_log_info("finding invalid not-null constraints");
 
 		resetPQExpBuffer(q);
 		appendPQExpBuffer(q,
@@ -10765,6 +10767,9 @@ fetchAttributeStats(Archive *fout)
 		restarted = true;
 	}
 
+	appendPQExpBufferChar(nspnames, '{');
+	appendPQExpBufferChar(relnames, '{');
+
 	/*
 	 * Scan the TOC for the next set of relevant stats entries.  We assume
 	 * that statistics are dumped in the order they are listed in the TOC.
@@ -10776,23 +10781,25 @@ fetchAttributeStats(Archive *fout)
 		if ((te->reqs & REQ_STATS) != 0 &&
 			strcmp(te->desc, "STATISTICS DATA") == 0)
 		{
-			appendPQExpBuffer(nspnames, "%s%s", count ? "," : "",
-							  fmtId(te->namespace));
-			appendPQExpBuffer(relnames, "%s%s", count ? "," : "",
-							  fmtId(te->tag));
+			appendPGArray(nspnames, te->namespace);
+			appendPGArray(relnames, te->tag);
 			count++;
 		}
 	}
+
+	appendPQExpBufferChar(nspnames, '}');
+	appendPQExpBufferChar(relnames, '}');
 
 	/* Execute the query for the next batch of relations. */
 	if (count > 0)
 	{
 		PQExpBuffer query = createPQExpBuffer();
 
-		appendPQExpBuffer(query, "EXECUTE getAttributeStats("
-						  "'{%s}'::pg_catalog.name[],"
-						  "'{%s}'::pg_catalog.name[])",
-						  nspnames->data, relnames->data);
+		appendPQExpBufferStr(query, "EXECUTE getAttributeStats(");
+		appendStringLiteralAH(query, nspnames->data, fout);
+		appendPQExpBufferStr(query, "::pg_catalog.name[],");
+		appendStringLiteralAH(query, relnames->data, fout);
+		appendPQExpBufferStr(query, "::pg_catalog.name[])");
 		res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
 		destroyPQExpBuffer(query);
 	}
@@ -10850,7 +10857,7 @@ dumpRelationStats_dumper(Archive *fout, const void *userArg, const TocEntry *te)
 		expected_te = expected_te->next;
 
 	if (te != expected_te)
-		pg_fatal("stats dumped out of order (current: %d %s %s) (expected: %d %s %s)",
+		pg_fatal("statistics dumped out of order (current: %d %s %s, expected: %d %s %s)",
 				 te->dumpId, te->desc, te->tag,
 				 expected_te->dumpId, expected_te->desc, expected_te->tag);
 
@@ -10924,7 +10931,20 @@ dumpRelationStats_dumper(Archive *fout, const void *userArg, const TocEntry *te)
 	appendStringLiteralAH(out, rsinfo->dobj.name, fout);
 	appendPQExpBufferStr(out, ",\n");
 	appendPQExpBuffer(out, "\t'relpages', '%d'::integer,\n", rsinfo->relpages);
-	appendPQExpBuffer(out, "\t'reltuples', '%s'::real,\n", rsinfo->reltuples);
+
+	/*
+	 * Before v14, a reltuples value of 0 was ambiguous: it could either mean
+	 * the relation is empty, or it could mean that it hadn't yet been
+	 * vacuumed or analyzed.  (Newer versions use -1 for the latter case.)
+	 * This ambiguity allegedly can cause the planner to choose inefficient
+	 * plans after restoring to v18 or newer.  To deal with this, let's just
+	 * set reltuples to -1 in that case.
+	 */
+	if (fout->remoteVersion < 140000 && strcmp("0", rsinfo->reltuples) == 0)
+		appendPQExpBufferStr(out, "\t'reltuples', '-1'::real,\n");
+	else
+		appendPQExpBuffer(out, "\t'reltuples', '%s'::real,\n", rsinfo->reltuples);
+
 	appendPQExpBuffer(out, "\t'relallvisible', '%d'::integer",
 					  rsinfo->relallvisible);
 
@@ -10978,7 +10998,7 @@ dumpRelationStats_dumper(Archive *fout, const void *userArg, const TocEntry *te)
 		appendStringLiteralAH(out, rsinfo->dobj.name, fout);
 
 		if (PQgetisnull(res, rownum, i_attname))
-			pg_fatal("attname cannot be NULL");
+			pg_fatal("unexpected null attname");
 		attname = PQgetvalue(res, rownum, i_attname);
 
 		/*

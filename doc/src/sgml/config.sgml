@@ -140,7 +140,7 @@
      An example of what this file might look like is:
 <programlisting>
 # This is a comment
-log_connections = yes
+log_connections = all
 log_destination = 'syslog'
 search_path = '"$user", public'
 shared_buffers = 128MB
@@ -337,7 +337,7 @@ UPDATE pg_settings SET setting = reset_val WHERE name = 'configuration_parameter
        <option>-c name=value</option> command-line parameter, or its equivalent
        <option>--name=value</option> variation.  For example,
 <programlisting>
-postgres -c log_connections=yes --log-destination='syslog'
+postgres -c log_connections=all --log-destination='syslog'
 </programlisting>
        Settings provided in this way override those set via
        <filename>postgresql.conf</filename> or <command>ALTER SYSTEM</command>,
@@ -1151,6 +1151,22 @@ include_dir 'conf.d'
         encrypted with SCRAM-SHA-256 as the iteration count is fixed at the
         time of encryption. In order to make use of a changed value, a new
         password must be set.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-md5-password-warnings" xreflabel="md5_password_warnings">
+      <term><varname>md5_password_warnings</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>md5_password_warnings</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Controls whether a <literal>WARNING</literal> about MD5 password
+        deprecation is produced when a <command>CREATE ROLE</command> or
+        <command>ALTER ROLE</command> statement sets an MD5-encrypted password.
+        The default value is <literal>on</literal>.
        </para>
       </listitem>
      </varlistentry>
@@ -2347,7 +2363,7 @@ include_dir 'conf.d'
       </listitem>
      </varlistentry>
 
-     <varlistentry id="guc_file_copy_method" xreflabel="file_copy_method">
+     <varlistentry id="guc-file-copy-method" xreflabel="file_copy_method">
       <term><varname>file_copy_method</varname> (<type>enum</type>)
       <indexterm>
        <primary><varname>file_copy_method</varname> configuration parameter</primary>
@@ -2763,6 +2779,7 @@ include_dir 'conf.d'
            </para>
           </listitem>
          </itemizedlist>
+         The default is <literal>worker</literal>.
         </para>
         <para>
          This parameter can only be set at server start.
@@ -2877,7 +2894,8 @@ include_dir 'conf.d'
          Sets the maximum number of parallel workers that can be
          started by a single utility command.  Currently, the parallel
          utility commands that support the use of parallel workers are
-         <command>CREATE INDEX</command> when building a B-tree or BRIN index,
+         <command>CREATE INDEX</command> when building a B-tree,
+         GIN, or BRIN index,
          and <command>VACUUM</command> without <literal>FULL</literal>
          option.  Parallel workers are taken from the pool of processes
          established by <xref linkend="guc-max-worker-processes"/>, limited
@@ -5748,7 +5766,7 @@ ANY <replaceable class="parameter">num_sync</replaceable> ( <replaceable class="
       </listitem>
      </varlistentry>
 
-     <varlistentry id="guc-enable_self_join_elimination" xreflabel="enable_self_join_elimination">
+     <varlistentry id="guc-enable-self-join-elimination" xreflabel="enable_self_join_elimination">
       <term><varname>enable_self_join_elimination</varname> (<type>boolean</type>)
       <indexterm>
        <primary><varname>enable_self_join_elimination</varname> configuration parameter</primary>
@@ -7511,12 +7529,12 @@ local0.*    /var/log/postgresql
            <entry><literal>setup_durations</literal></entry>
            <entry>
             Logs the time spent establishing the connection and setting up the
-            backend at the time the connection is ready to execute its first
-            query. The log message includes the total setup duration, starting
-            from the postmaster accepting the incoming connection and ending
-            when the connection is ready for query. It also includes the time
-            it took to fork the new backend and the time it took to
-            authenticate the user.
+            backend until the connection is ready to execute its first
+            query. The log message includes three durations:  the total
+            setup duration (starting from the postmaster accepting the
+            incoming connection and ending when the connection is ready
+            for query), the time it took to fork the new backend, and
+            the time it took to authenticate the user.
            </entry>
           </row>
 
@@ -7907,10 +7925,10 @@ log_line_prefix = '%m [%p] %q%u@%d/%a '
       </listitem>
      </varlistentry>
 
-     <varlistentry id="guc-log-lock-failure" xreflabel="log_lock_failure">
-      <term><varname>log_lock_failure</varname> (<type>boolean</type>)
+     <varlistentry id="guc-log-lock-failures" xreflabel="log_lock_failures">
+      <term><varname>log_lock_failures</varname> (<type>boolean</type>)
       <indexterm>
-       <primary><varname>log_lock_failure</varname> configuration parameter</primary>
+       <primary><varname>log_lock_failures</varname> configuration parameter</primary>
       </indexterm>
       </term>
       <listitem>
@@ -8114,22 +8132,6 @@ log_line_prefix = '%m [%p] %q%u@%d/%a '
         See <xref linkend="datatype-timezones"/> for more information.
         This parameter can only be set in the <filename>postgresql.conf</filename>
         file or on the server command line.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="guc-md5-password-warnings" xreflabel="md5_password_warnings">
-      <term><varname>md5_password_warnings</varname> (<type>boolean</type>)
-      <indexterm>
-       <primary><varname>md5_password_warnings</varname> configuration parameter</primary>
-      </indexterm>
-      </term>
-      <listitem>
-       <para>
-        Controls whether a <literal>WARNING</literal> about MD5 password
-        deprecation is produced when a <command>CREATE ROLE</command> or
-        <command>ALTER ROLE</command> statement sets an MD5-encrypted password.
-        The default value is <literal>on</literal>.
        </para>
       </listitem>
      </varlistentry>

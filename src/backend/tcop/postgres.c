@@ -1226,7 +1226,6 @@ exec_simple_query(const char *query_string)
 						  query_string,
 						  commandTag,
 						  plantree_list,
-						  NULL,
 						  NULL);
 
 		/*
@@ -1683,7 +1682,7 @@ exec_bind_message(StringInfo input_message)
 	{
 		Query	   *query = lfirst_node(Query, lc);
 
-		if (query->queryId != UINT64CONST(0))
+		if (query->queryId != INT64CONST(0))
 		{
 			pgstat_report_query_id(query->queryId, false);
 			break;
@@ -2028,15 +2027,14 @@ exec_bind_message(StringInfo input_message)
 					  query_string,
 					  psrc->commandTag,
 					  cplan->stmt_list,
-					  cplan,
-					  psrc);
+					  cplan);
 
 	/* Portal is defined, set the plan ID based on its contents. */
 	foreach(lc, portal->stmts)
 	{
 		PlannedStmt *plan = lfirst_node(PlannedStmt, lc);
 
-		if (plan->planId != UINT64CONST(0))
+		if (plan->planId != INT64CONST(0))
 		{
 			pgstat_report_plan_id(plan->planId, false);
 			break;
@@ -2176,7 +2174,7 @@ exec_execute_message(const char *portal_name, long max_rows)
 	{
 		PlannedStmt *stmt = lfirst_node(PlannedStmt, lc);
 
-		if (stmt->queryId != UINT64CONST(0))
+		if (stmt->queryId != INT64CONST(0))
 		{
 			pgstat_report_query_id(stmt->queryId, false);
 			break;
@@ -2187,7 +2185,7 @@ exec_execute_message(const char *portal_name, long max_rows)
 	{
 		PlannedStmt *stmt = lfirst_node(PlannedStmt, lc);
 
-		if (stmt->planId != UINT64CONST(0))
+		if (stmt->planId != INT64CONST(0))
 		{
 			pgstat_report_plan_id(stmt->planId, false);
 			break;
@@ -3535,9 +3533,6 @@ ProcessInterrupts(void)
 	if (LogMemoryContextPending)
 		ProcessLogMemoryContextInterrupt();
 
-	if (PublishMemoryContextPending)
-		ProcessGetMemoryContextInterrupt();
-
 	if (ParallelApplyMessagePending)
 		ProcessParallelApplyMessages();
 }
@@ -3695,7 +3690,7 @@ set_debug_options(int debug_flag, GucContext context, GucSource source)
 
 	if (debug_flag >= 1 && context == PGC_POSTMASTER)
 	{
-		SetConfigOption("log_connections", "true", context, source);
+		SetConfigOption("log_connections", "all", context, source);
 		SetConfigOption("log_disconnections", "true", context, source);
 	}
 	if (debug_flag >= 2)

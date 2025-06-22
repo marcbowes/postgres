@@ -16,7 +16,10 @@ PostgreSQL documentation
 
  <refnamediv>
   <refname>pg_dumpall</refname>
-  <refpurpose>extract a <productname>PostgreSQL</productname> database cluster using a specified dump format</refpurpose>
+
+  <refpurpose>
+   export a <productname>PostgreSQL</productname> database cluster as an SQL script or to other formats
+  </refpurpose>
  </refnamediv>
 
  <refsynopsisdiv>
@@ -33,7 +36,7 @@ PostgreSQL documentation
   <para>
    <application>pg_dumpall</application> is a utility for writing out
    (<quote>dumping</quote>) all <productname>PostgreSQL</productname> databases
-   of a cluster into an archive.  The archive contains
+   of a cluster into an SQL script file or an archive.  The output contains
    <acronym>SQL</acronym> commands that can be used as input to <xref
    linkend="app-psql"/> to restore the databases.  It does this by
    calling <xref linkend="app-pgdump"/> for each database in the cluster.
@@ -567,7 +570,7 @@ exclude database <replaceable class="parameter">PATTERN</replaceable>
       <term><option>--no-statistics</option></term>
       <listitem>
        <para>
-        Do not dump statistics.
+        Do not dump statistics. This is the default.
        </para>
       </listitem>
      </varlistentry>
@@ -690,7 +693,8 @@ exclude database <replaceable class="parameter">PATTERN</replaceable>
       <listitem>
        <para>
         Dump only the statistics, not the schema (data definitions) or data.
-        Statistics for tables, materialized views, and indexes are dumped.
+        Statistics for tables, materialized views, foreign tables,
+        and indexes are dumped.
        </para>
       </listitem>
      </varlistentry>
@@ -741,7 +745,7 @@ exclude database <replaceable class="parameter">PATTERN</replaceable>
       <term><option>--with-statistics</option></term>
       <listitem>
        <para>
-        Dump statistics. This is the default.
+        Dump statistics.
        </para>
       </listitem>
      </varlistentry>
@@ -957,14 +961,14 @@ exclude database <replaceable class="parameter">PATTERN</replaceable>
   </para>
 
   <para>
-   By default, <command>pg_dumpall</command> will include most optimizer
-   statistics in the resulting dump file.  However, some statistics may not be
-   included, such as those created explicitly with <xref
-   linkend="sql-createstatistics"/> or custom statistics added by an
-   extension.  Therefore, it may be useful to run <command>ANALYZE</command>
-   on each database after restoring from a dump file to ensure optimal
-   performance.  You can also run <command>vacuumdb -a -z</command> to analyze
-   all databases.
+   If <option>--with-statistics</option> is specified,
+   <command>pg_dumpall</command> will include most optimizer statistics in the
+   resulting dump file.  However, some statistics may not be included, such as
+   those created explicitly with <xref linkend="sql-createstatistics"/> or
+   custom statistics added by an extension.  Therefore, it may be useful to
+   run <command>ANALYZE</command> on each database after restoring from a dump
+   file to ensure optimal performance.  You can also run <command>vacuumdb -a
+   -z</command> to analyze all databases.
   </para>
 
   <para>

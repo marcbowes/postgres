@@ -326,10 +326,13 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 	glob->subroots = NIL;
 	glob->rewindPlanIDs = NULL;
 	glob->finalrtable = NIL;
+	glob->allRelids = NULL;
+	glob->prunableRelids = NULL;
 	glob->finalrteperminfos = NIL;
 	glob->finalrowmarks = NIL;
 	glob->resultRelations = NIL;
 	glob->appendRelations = NIL;
+	glob->partPruneInfos = NIL;
 	glob->relationOids = NIL;
 	glob->invalItems = NIL;
 	glob->paramExecTypes = NIL;
@@ -338,6 +341,7 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 	glob->lastPlanNodeId = 0;
 	glob->transientPlan = false;
 	glob->dependsOnRole = false;
+	glob->partition_directory = NULL;
 
 	/*
 	 * Assess whether it's feasible to use parallel mode for this query. We
@@ -566,7 +570,6 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 											  glob->prunableRelids);
 	result->permInfos = glob->finalrteperminfos;
 	result->resultRelations = glob->resultRelations;
-	result->firstResultRels = glob->firstResultRels;
 	result->appendRelations = glob->appendRelations;
 	result->subplans = glob->subplans;
 	result->rewindPlanIDs = glob->rewindPlanIDs;
@@ -6876,7 +6879,7 @@ plan_cluster_use_sort(Oid tableOid, Oid indexOid)
  *
  * tableOid is the table on which the index is to be built.  indexOid is the
  * OID of an index to be created or reindexed (which must be an index with
- * support for parallel builds - currently btree or BRIN).
+ * support for parallel builds - currently btree, GIN, or BRIN).
  *
  * Return value is the number of parallel worker processes to request.  It
  * may be unsafe to proceed if this is 0.  Note that this does not include the
