@@ -223,7 +223,7 @@ static const internalPQconninfoOption PQconninfoOptions[] = {
 		"Connect-timeout", "", 10,	/* strlen(INT32_MAX) == 10 */
 	offsetof(struct pg_conn, connect_timeout)},
 
-	{"dbname", "PGDATABASE", NULL, NULL,
+	{"dbname", "PGDATABASE", "postgres", NULL,
 		"Database-Name", "", 20,
 	offsetof(struct pg_conn, dbName)},
 
