@@ -153,22 +153,27 @@ install_via_zip() {
     TAG_NAME=$(echo "$RELEASE_INFO" | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
     echo "Latest release found: $TAG_NAME"
     
-    # Find appropriate ZIP file
-    local zip_pattern=""
-    if [[ "$os" == "macos" ]]; then
-        zip_pattern="postgres-dsql-macos-latest-${arch}"
-    elif [[ "$os" == "linux" ]]; then
-        zip_pattern="postgres-dsql-ubuntu-22.04-${arch}"
+    # Find appropriate ZIP file based on OS and architecture
+    local zip_filename=""
+    local arch_suffix=""
+    
+    # Convert architecture format
+    if [[ "$arch" == "X64" ]]; then
+        arch_suffix="x64"
+    elif [[ "$arch" == "ARM64" ]]; then
+        arch_suffix="arm64"
     fi
     
-    # Extract download URL for the zip file
-    DOWNLOAD_URL=$(echo "$RELEASE_INFO" | grep -o "\"browser_download_url\": *\"[^\"]*${zip_pattern}[^\"]*\.zip\"" | cut -d'"' -f4)
+    if [[ "$os" == "macos" ]]; then
+        zip_filename="postgres-dsql-macos-${arch_suffix}.zip"
+    elif [[ "$os" == "linux" ]]; then
+        zip_filename="postgres-dsql-linux-${arch_suffix}.zip"
+    fi
+    
+    # Find download URL for the platform-specific zip file
+    DOWNLOAD_URL=$(echo "$RELEASE_INFO" | grep -o "\"browser_download_url\": *\"[^\"]*${zip_filename}\"" | cut -d'"' -f4)
     if [[ -z "$DOWNLOAD_URL" ]]; then
-        # Fallback to generic postgres-dsql.zip
-        DOWNLOAD_URL=$(echo "$RELEASE_INFO" | grep -o '"browser_download_url": *"[^"]*postgres-dsql.zip"' | cut -d'"' -f4)
-        if [[ -z "$DOWNLOAD_URL" ]]; then
-            error_exit "No compatible ZIP file found in the latest release."
-        fi
+        error_exit "${zip_filename} not found in the latest release."
     fi
     
     # Create directories if they don't exist

@@ -65,12 +65,6 @@ jobs:
           name: postgres-dsql-${{ matrix.os }}-${{ runner.arch }}
           path: build/postgres-dsql.zip
 
-      - name: Upload DMG Artifact
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
-        with:
-          name: postgres-dsql-dmg-${{ runner.arch }}
-          path: "build/*.dmg"
 
       - name: Upload RPM Artifact
         if: runner.os == 'Linux'
@@ -124,7 +118,6 @@ jobs:
           done
           
           # Copy other files with original names
-          find artifacts -name "*.dmg" -exec cp {} release-files/ \;
           find artifacts -name "*.rpm" -exec cp {} release-files/ \;
           find artifacts -name "*.deb" -exec cp {} release-files/ \;
           
