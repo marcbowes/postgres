@@ -771,6 +771,8 @@ static bool verbose_errors = false; /* print verbose messages of all errors */
 
 static bool exit_on_abort = false;	/* exit when any client is aborted */
 
+static bool dsql = false;		/* --dsql command line option */
+
 /* Builtin test scripts */
 typedef struct BuiltinScript
 {
@@ -848,6 +850,10 @@ typedef void (*initRowMethod) (PQExpBufferData *sql, int64 curr);
 static const PsqlScanCallbacks pgbench_callbacks = {
 	NULL,						/* don't need get_variable functionality */
 };
+
+static bool is_dsql() {
+	return strcmp(getenv("PGDSQL"), "1") == 0;
+}
 
 static char
 get_table_relkind(PGconn *con, const char *table)
@@ -4852,26 +4858,26 @@ initCreateTables(PGconn *con)
 	static const struct ddlinfo DDLs[] = {
 		{
 			"pgbench_history",
-			"tid int,bid int,aid    int,delta int,mtime timestamp,filler char(22)",
-			"tid int,bid int,aid bigint,delta int,mtime timestamp,filler char(22)",
+			"id uuid default gen_random_uuid(),tid int,bid int,aid    int,delta int,mtime timestamp,filler char(22)",
+			"id uuid default gen_random_uuid(),tid int,bid int,aid bigint,delta int,mtime timestamp,filler char(22)",
 			0
 		},
 		{
 			"pgbench_tellers",
-			"tid int not null,bid int,tbalance int,filler char(84)",
-			"tid int not null,bid int,tbalance int,filler char(84)",
+			"tid int primary key,bid int,tbalance int,filler char(84)",
+			"tid int primary key,bid int,tbalance int,filler char(84)",
 			1
 		},
 		{
 			"pgbench_accounts",
-			"aid    int not null,bid int,abalance int,filler char(84)",
-			"aid bigint not null,bid int,abalance int,filler char(84)",
+			"aid    int primary key,bid int,abalance int,filler char(84)",
+			"aid bigint primary key,bid int,abalance int,filler char(84)",
 			1
 		},
 		{
 			"pgbench_branches",
-			"bid int not null,bbalance int,filler char(88)",
-			"bid int not null,bbalance int,filler char(88)",
+			"bid int primary key,bbalance int,filler char(88)",
+			"bid int primary key,bbalance int,filler char(88)",
 			1
 		}
 	};
@@ -4892,14 +4898,16 @@ initCreateTables(PGconn *con)
 						  ddl->table,
 						  (scale >= SCALE_32BIT_THRESHOLD) ? ddl->bigcols : ddl->smcols);
 
-		/* Partition pgbench_accounts table */
-		if (partition_method != PART_NONE && strcmp(ddl->table, "pgbench_accounts") == 0)
-			appendPQExpBuffer(&query,
-							  " partition by %s (aid)", PARTITION_METHOD[partition_method]);
-		else if (ddl->declare_fillfactor)
-		{
-			/* fillfactor is only expected on actual tables */
-			appendPQExpBuffer(&query, " with (fillfactor=%d)", fillfactor);
+		if (!is_dsql()) {
+			/* Partition pgbench_accounts table */
+			if (partition_method != PART_NONE && strcmp(ddl->table, "pgbench_accounts") == 0)
+				appendPQExpBuffer(&query,
+								" partition by %s (aid)", PARTITION_METHOD[partition_method]);
+			else if (ddl->declare_fillfactor)
+			{
+				/* fillfactor is only expected on actual tables */
+				appendPQExpBuffer(&query, " with (fillfactor=%d)", fillfactor);
+			}
 		}
 
 		if (tablespace != NULL)
@@ -4926,11 +4934,17 @@ initCreateTables(PGconn *con)
 static void
 initTruncateTables(PGconn *con)
 {
-	executeStatement(con, "truncate table "
+	if (!is_dsql()) {
+		executeStatement(con, "truncate table "
 					 "pgbench_accounts, "
 					 "pgbench_branches, "
 					 "pgbench_history, "
 					 "pgbench_tellers");
+	} else {
+		// TODO: DSQL mode needs to do deletes in batches.
+		// This is not implemented because it's relatively easy to simply
+		// drop all tables and re-init with -i.
+	}
 }
 
 static void
@@ -4984,8 +4998,9 @@ initPopulateTable(PGconn *con, const char *table, int64 base,
 	initPQExpBuffer(&sql);
 
 	/* Use COPY with FREEZE on v14 and later for all ordinary tables */
+	// XXX: DSQL doesn't support (or need) freeze.
 	if ((PQserverVersion(con) >= 140000) &&
-		get_table_relkind(con, table) == RELKIND_RELATION)
+		get_table_relkind(con, table) == RELKIND_RELATION && !is_dsql()) 
 		copy_statement_fmt = "copy %s from stdin with (freeze on)";
 
 
@@ -4995,16 +5010,22 @@ initPopulateTable(PGconn *con, const char *table, int64 base,
 	else if (n == -1)
 		pg_fatal("invalid format string");
 
-	res = PQexec(con, copy_statement);
-
-	if (PQresultStatus(res) != PGRES_COPY_IN)
-		pg_fatal("unexpected copy in result: %s", PQerrorMessage(con));
-	PQclear(res);
-
 	start = pg_time_now();
 
 	for (k = 0; k < total; k++)
 	{
+		if (k == 0) {
+			if (is_dsql()) {
+				executeStatement(con, "begin");
+			}
+
+			res = PQexec(con, copy_statement);
+
+			if (PQresultStatus(res) != PGRES_COPY_IN)
+				pg_fatal("unexpected copy in result: %s", PQerrorMessage(con));
+			PQclear(res);
+		}
+
 		int64		j = k + 1;
 
 		init_row(&sql, k);
@@ -5013,6 +5034,21 @@ initPopulateTable(PGconn *con, const char *table, int64 base,
 
 		if (CancelRequested)
 			break;
+
+		// XXX: Start a new transaction every 1000 rows
+		if (is_dsql() && (k > 0 && k % 1000 == 0)) {
+			if (PQputline(con, "\\.\n"))
+				pg_fatal("very last PQputline failed");
+			if (PQendcopy(con))
+				pg_fatal("PQendcopy failed");
+
+			executeStatement(con, "commit");
+			executeStatement(con, "begin");
+			res = PQexec(con, copy_statement);
+			if (PQresultStatus(res) != PGRES_COPY_IN)
+				pg_fatal("unexpected copy in result: %s", PQerrorMessage(con));
+			PQclear(res);
+		}
 
 		/*
 		 * If we want to stick with the original logging, print a message each
@@ -5076,6 +5112,10 @@ initPopulateTable(PGconn *con, const char *table, int64 base,
 	if (PQendcopy(con))
 		pg_fatal("PQendcopy failed");
 
+	if (is_dsql()) {
+		executeStatement(con, "commit");
+	}
+
 	termPQExpBuffer(&sql);
 }
 
@@ -5090,11 +5130,14 @@ initGenerateDataClientSide(PGconn *con)
 {
 	fprintf(stderr, "generating data (client-side)...\n");
 
+	// XXX: On DSQL we do batch inserts within populate.
+	if (!is_dsql()) {
 	/*
 	 * we do all of this in one transaction to enable the backend's
 	 * data-loading optimizations
 	 */
 	executeStatement(con, "begin");
+	}
 
 	/* truncate away any old data */
 	initTruncateTables(con);
@@ -5107,7 +5150,9 @@ initGenerateDataClientSide(PGconn *con)
 	initPopulateTable(con, "pgbench_tellers", ntellers, initTeller);
 	initPopulateTable(con, "pgbench_accounts", naccounts, initAccount);
 
+	if (!is_dsql()) {
 	executeStatement(con, "commit");
+	}
 }
 
 /*
@@ -5178,6 +5223,11 @@ initVacuum(PGconn *con)
 static void
 initCreatePKeys(PGconn *con)
 {
+	// Schema has been updated to always have PKs.
+	if (is_dsql()) {
+		return;
+	}
+
 	static const char *const DDLINDEXes[] = {
 		"alter table pgbench_branches add primary key (bid)",
 		"alter table pgbench_tellers add primary key (tid)",
@@ -6705,6 +6755,7 @@ main(int argc, char **argv)
 		{"verbose-errors", no_argument, NULL, 15},
 		{"exit-on-abort", no_argument, NULL, 16},
 		{"debug", no_argument, NULL, 17},
+		{"dsql", no_argument, NULL, 18},
 		{NULL, 0, NULL, 0}
 	};
 
@@ -7058,11 +7109,21 @@ main(int argc, char **argv)
 			case 17:			/* debug */
 				pg_logging_increase_verbosity();
 				break;
+			case 18:			/* dsql */
+				dsql = true;
+				break;
 			default:
 				/* getopt_long already emitted a complaint */
 				pg_log_error_hint("Try \"%s --help\" for more information.", progname);
 				exit(1);
 		}
+	}
+
+	if (dsql)
+	{
+		setenv("PGDSQL", "1", 1);
+		is_no_vacuum = true;
+		foreign_keys = false;
 	}
 
 	/* set default script if none */
