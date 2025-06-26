@@ -2,8 +2,8 @@
 set -e
 
 # Package PostgreSQL DSQL client for distribution
-# This script creates a standalone distribution with psql (renamed to pdsql) 
-# and libpq that can be used without additional dependencies
+# This script creates a standalone distribution with psql (renamed to pdsql), 
+# pgbench, and libpq that can be used without additional dependencies
 
 echo "Packaging PostgreSQL DSQL client"
 echo "================================"
@@ -13,8 +13,10 @@ ROOT_DIR=$(pwd)
 BUILD_DIR="$ROOT_DIR/build"
 DIST_NAME="postgres-dsql"
 DIST_DIR="$BUILD_DIR/$DIST_NAME"
-SRC_BIN="$ROOT_DIR/src/bin/psql/psql"
-BINARY_NAME="pdsql"
+SRC_PSQL_BIN="$ROOT_DIR/src/bin/psql/psql"
+SRC_PGBENCH_BIN="$ROOT_DIR/src/bin/pgbench/pgbench"
+PSQL_BINARY_NAME="pdsql"
+PGBENCH_BINARY_NAME="pgbench"
 
 # Detect OS and set appropriate library paths
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -34,8 +36,14 @@ else
 fi
 
 # Check if the build artifacts exist
-if [ ! -f "$SRC_BIN" ]; then
-    echo "Error: psql binary not found at $SRC_BIN"
+if [ ! -f "$SRC_PSQL_BIN" ]; then
+    echo "Error: psql binary not found at $SRC_PSQL_BIN"
+    echo "Please run scripts/build-dsql.sh first"
+    exit 1
+fi
+
+if [ ! -f "$SRC_PGBENCH_BIN" ]; then
+    echo "Error: pgbench binary not found at $SRC_PGBENCH_BIN"
     echo "Please run scripts/build-dsql.sh first"
     exit 1
 fi
@@ -60,8 +68,11 @@ mkdir -p "$DIST_DIR/bin"
 mkdir -p "$DIST_DIR/lib"
 
 # Copy binaries and libraries
-echo "Copying psql to $DIST_DIR/bin/$BINARY_NAME"
-cp "$SRC_BIN" "$DIST_DIR/bin/$BINARY_NAME"
+echo "Copying psql to $DIST_DIR/bin/$PSQL_BINARY_NAME"
+cp "$SRC_PSQL_BIN" "$DIST_DIR/bin/$PSQL_BINARY_NAME"
+
+echo "Copying pgbench to $DIST_DIR/bin/$PGBENCH_BINARY_NAME"
+cp "$SRC_PGBENCH_BIN" "$DIST_DIR/bin/$PGBENCH_BINARY_NAME"
 
 echo "Copying libpq to $DIST_DIR/lib/"
 cp "$SRC_LIB" "$DIST_DIR/lib/"
@@ -71,41 +82,52 @@ if [[ "$PLATFORM" == "macos" ]]; then
     # Copy additional dylib if it exists
     cp "$ROOT_DIR/src/interfaces/libpq/libpq.dylib" "$DIST_DIR/lib/" 2>/dev/null || true
     
-    # Set up correct library paths in the binary
-    echo "Updating library paths in $BINARY_NAME binary..."
-    LIBRARY_PATH=$(otool -L "$DIST_DIR/bin/$BINARY_NAME" | grep libpq | awk '{print $1}')
-    install_name_tool -change "$LIBRARY_PATH" "@loader_path/../lib/libpq.5.dylib" "$DIST_DIR/bin/$BINARY_NAME"
+    # Set up correct library paths in the binaries
+    echo "Updating library paths in $PSQL_BINARY_NAME binary..."
+    LIBRARY_PATH=$(otool -L "$DIST_DIR/bin/$PSQL_BINARY_NAME" | grep libpq | awk '{print $1}')
+    install_name_tool -change "$LIBRARY_PATH" "@loader_path/../lib/libpq.5.dylib" "$DIST_DIR/bin/$PSQL_BINARY_NAME"
+    
+    echo "Updating library paths in $PGBENCH_BINARY_NAME binary..."
+    LIBRARY_PATH=$(otool -L "$DIST_DIR/bin/$PGBENCH_BINARY_NAME" | grep libpq | awk '{print $1}')
+    install_name_tool -change "$LIBRARY_PATH" "@loader_path/../lib/libpq.5.dylib" "$DIST_DIR/bin/$PGBENCH_BINARY_NAME"
     
     # Fix library itself to refer to itself by relative path
     install_name_tool -id "@loader_path/libpq.5.dylib" "$DIST_DIR/lib/libpq.5.dylib"
     
     # Verify the changes
     echo "Verifying library path changes:"
-    otool -L "$DIST_DIR/bin/$BINARY_NAME" | grep libpq
+    otool -L "$DIST_DIR/bin/$PSQL_BINARY_NAME" | grep libpq
+    otool -L "$DIST_DIR/bin/$PGBENCH_BINARY_NAME" | grep libpq
     otool -L "$DIST_DIR/lib/libpq.5.dylib" | grep libpq
 
 elif [[ "$PLATFORM" == "linux" ]]; then
     # Copy additional .so files if they exist
     cp "$ROOT_DIR/src/interfaces/libpq/libpq.so" "$DIST_DIR/lib/" 2>/dev/null || true
     
-    # Set up RPATH for the binary to find libraries in ../lib
-    echo "Setting RPATH for $BINARY_NAME binary..."
-    patchelf --set-rpath '$ORIGIN/../lib' "$DIST_DIR/bin/$BINARY_NAME" 2>/dev/null || {
+    # Set up RPATH for the binaries to find libraries in ../lib
+    echo "Setting RPATH for $PSQL_BINARY_NAME binary..."
+    patchelf --set-rpath '$ORIGIN/../lib' "$DIST_DIR/bin/$PSQL_BINARY_NAME" 2>/dev/null || {
         echo "Warning: patchelf not available. Installing patchelf..."
         if command -v apt-get >/dev/null 2>&1; then
             sudo apt-get update && sudo apt-get install -y patchelf
-            patchelf --set-rpath '$ORIGIN/../lib' "$DIST_DIR/bin/$BINARY_NAME"
+            patchelf --set-rpath '$ORIGIN/../lib' "$DIST_DIR/bin/$PSQL_BINARY_NAME"
+            patchelf --set-rpath '$ORIGIN/../lib' "$DIST_DIR/bin/$PGBENCH_BINARY_NAME"
         elif command -v yum >/dev/null 2>&1; then
             sudo yum install -y patchelf
-            patchelf --set-rpath '$ORIGIN/../lib' "$DIST_DIR/bin/$BINARY_NAME"
+            patchelf --set-rpath '$ORIGIN/../lib' "$DIST_DIR/bin/$PSQL_BINARY_NAME"
+            patchelf --set-rpath '$ORIGIN/../lib' "$DIST_DIR/bin/$PGBENCH_BINARY_NAME"
         else
             echo "Warning: Could not install patchelf. The binary may not find libraries correctly."
         fi
     }
     
+    echo "Setting RPATH for $PGBENCH_BINARY_NAME binary..."
+    patchelf --set-rpath '$ORIGIN/../lib' "$DIST_DIR/bin/$PGBENCH_BINARY_NAME" 2>/dev/null || echo "patchelf already handled above"
+    
     # Verify the changes
     echo "Verifying RPATH changes:"
-    ldd "$DIST_DIR/bin/$BINARY_NAME" | grep libpq || echo "libpq dependency check complete"
+    ldd "$DIST_DIR/bin/$PSQL_BINARY_NAME" | grep libpq || echo "libpq dependency check complete for pdsql"
+    ldd "$DIST_DIR/bin/$PGBENCH_BINARY_NAME" | grep libpq || echo "libpq dependency check complete for pgbench"
 fi
 
 # Create a ZIP archive
@@ -171,20 +193,27 @@ mkdir -p %{buildroot}/usr/bin
 
 # Install binaries and libraries to /opt to avoid conflicts
 cp %{_sourcedir}/bin/pdsql %{buildroot}/opt/postgres-dsql/bin/
+cp %{_sourcedir}/bin/pgbench %{buildroot}/opt/postgres-dsql/bin/
 cp %{_sourcedir}/lib/* %{buildroot}/opt/postgres-dsql/lib/
 
-# Create symlink in /usr/bin for easy access
+# Create symlinks in /usr/bin for easy access
 ln -s /opt/postgres-dsql/bin/pdsql %{buildroot}/usr/bin/pdsql
+ln -s /opt/postgres-dsql/bin/pgbench %{buildroot}/usr/bin/pgbench
 
 %files
 /opt/postgres-dsql/bin/pdsql
+/opt/postgres-dsql/bin/pgbench
 /opt/postgres-dsql/lib/*
 /usr/bin/pdsql
+/usr/bin/pgbench
 
 %post
 echo "PostgreSQL DSQL client installed successfully!"
 echo "Use 'pdsql' command to connect to AWS DSQL databases."
 echo "Example: pdsql --host=your-dsql-endpoint.example.com --user=admin --dbname=postgres"
+echo ""
+echo "Use 'pgbench' command to run PostgreSQL benchmarks against DSQL databases."
+echo "Example: pgbench --dsql --host=your-dsql-endpoint.example.com --user=admin --dbname=postgres --initialize --scale=1"
 
 %changelog
 * $(date +'%a %b %d %Y') Build System <build@example.com> - 1.0.0-1
@@ -195,6 +224,7 @@ EOF
     mkdir -p "$RPM_BUILD_DIR/SOURCES/bin"
     mkdir -p "$RPM_BUILD_DIR/SOURCES/lib"
     cp "$DIST_DIR/bin/pdsql" "$RPM_BUILD_DIR/SOURCES/bin/"
+    cp "$DIST_DIR/bin/pgbench" "$RPM_BUILD_DIR/SOURCES/bin/"
     cp "$DIST_DIR/lib"/* "$RPM_BUILD_DIR/SOURCES/lib/"
     
     # Build the RPM
@@ -271,10 +301,12 @@ EOF
     
     # Copy files
     cp "$DIST_DIR/bin/pdsql" "$DEB_PKG_DIR/opt/postgres-dsql/bin/"
+    cp "$DIST_DIR/bin/pgbench" "$DEB_PKG_DIR/opt/postgres-dsql/bin/"
     cp "$DIST_DIR/lib"/* "$DEB_PKG_DIR/opt/postgres-dsql/lib/"
     
-    # Create symlink
+    # Create symlinks
     ln -s /opt/postgres-dsql/bin/pdsql "$DEB_PKG_DIR/usr/bin/pdsql"
+    ln -s /opt/postgres-dsql/bin/pgbench "$DEB_PKG_DIR/usr/bin/pgbench"
     
     # Create control file
     cat > "$DEB_PKG_DIR/DEBIAN/control" << EOF
@@ -297,6 +329,9 @@ EOF
 echo "PostgreSQL DSQL client installed successfully!"
 echo "Use 'pdsql' command to connect to AWS DSQL databases."
 echo "Example: pdsql --host=your-dsql-endpoint.example.com --user=admin --dbname=postgres"
+echo ""
+echo "Use 'pgbench' command to run PostgreSQL benchmarks against DSQL databases."
+echo "Example: pgbench --dsql --host=your-dsql-endpoint.example.com --user=admin --dbname=postgres --initialize --scale=1"
 EOF
     chmod 755 "$DEB_PKG_DIR/DEBIAN/postinst"
     
