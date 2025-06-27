@@ -81,7 +81,7 @@ OBJS += \
 endif
 
 AWS_DSQL_AUTH_CPPFLAGS := $(addprefix -I,$(shell find $(top_srcdir)/aws-dsql-auth/ -type d -name include -not -path '*/test*'))
-AWS_DSQL_AUTH_LIBS := $(shell find $(top_srcdir)/aws-dsql-auth/build/ -type f -name '*.a' -not -path '*/test*' -not -name libssl.a -not -name libcrypto.a)
+AWS_DSQL_AUTH_LIBS := $(shell find $(top_srcdir)/aws-dsql-auth/build/ -type f -name '*.a' -not -path '*/test*')
 
 # Custom rule for fe-dsql-auth.o that includes AWS libraries
 fe-dsql-auth.o: fe-dsql-auth.c
