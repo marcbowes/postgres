@@ -131,6 +131,7 @@ initialize_aws_libs(void)
             goto error;
         }
         
+        AWS_ZERO_STRUCT(resolver_options);
         resolver_options.el_group = s_el_group;
         resolver_options.max_entries = 8;
         s_host_resolver = aws_host_resolver_new_default(allocator, &resolver_options);
@@ -139,6 +140,7 @@ initialize_aws_libs(void)
             goto error;
         }
         
+        AWS_ZERO_STRUCT(bootstrap_options);
         bootstrap_options.event_loop_group = s_el_group;
         bootstrap_options.host_resolver = s_host_resolver;
         s_client_bootstrap = aws_client_bootstrap_new(allocator, &bootstrap_options);
