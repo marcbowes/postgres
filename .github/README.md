@@ -164,6 +164,68 @@ pdsql --host=your-endpoint.dsql.amazonaws.com \
 - Or set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables
 - Verify your credentials work: `aws sts get-caller-identity`
 
+## 🔍 Debug Logging
+
+For troubleshooting authentication and connection issues, enable detailed AWS SDK logging:
+
+### Environment Variables
+
+- **`AWS_LOG_LEVEL`**: Controls verbosity (NONE, FATAL, ERROR, WARN, INFO, DEBUG, TRACE)
+- **`AWS_LOG_FILE`**: Controls output destination (stdout, stderr, or file path)
+
+### Basic Debugging
+
+Enable debug logging to stderr (default):
+```bash
+AWS_LOG_LEVEL=DEBUG pdsql --host=your-endpoint.dsql.amazonaws.com --user=admin
+```
+
+### Detailed Tracing
+
+Enable maximum verbosity for deep debugging:
+```bash
+AWS_LOG_LEVEL=TRACE pdsql --host=your-endpoint.dsql.amazonaws.com --user=admin
+```
+
+### Log to File
+
+Save logs to a file for analysis:
+```bash
+AWS_LOG_LEVEL=DEBUG AWS_LOG_FILE=/tmp/dsql-debug.log pdsql --host=your-endpoint.dsql.amazonaws.com --user=admin
+```
+
+### Log to stdout
+
+Send logs to stdout (useful for piping):
+```bash
+AWS_LOG_LEVEL=INFO AWS_LOG_FILE=stdout pdsql --host=your-endpoint.dsql.amazonaws.com --user=admin
+```
+
+### What the Logs Show
+
+The debug logs will reveal:
+- **Token Generation**: Process of creating DSQL authentication tokens
+- **AWS Region Detection**: How the region is determined from hostname or environment
+- **Credentials Provider Chain**: Which credential sources are tried (environment, files, IAM roles, IMDS)
+- **HTTP Infrastructure**: Event loops and network setup for IMDS on EC2
+- **Error Details**: Specific AWS SDK errors with error codes
+
+### Example Log Output
+
+```
+[INFO] [2025-06-28T03:33:55Z] Starting DSQL token generation for endpoint: your-endpoint.dsql.amazonaws.com
+[DEBUG] [2025-06-28T03:33:55Z] Using AWS_REGION from environment: us-west-2
+[DEBUG] [2025-06-28T03:33:55Z] Creating credentials provider chain with bootstrap for IMDS
+[INFO] [2025-06-28T03:33:55Z] Token generation successful
+```
+
+### Disable Logging
+
+To disable all logging:
+```bash
+AWS_LOG_LEVEL=NONE pdsql --host=your-endpoint.dsql.amazonaws.com --user=admin
+```
+
 ### Getting Help
 
 For additional help:
