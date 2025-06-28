@@ -196,11 +196,14 @@ install_via_zip() {
     # Clean up temp files
     rm -rf "$TEMP_DIR"
     
-    # Make the binary executable
+    # Make the binaries executable
     chmod +x "$INSTALL_PATH/bin/pdsql"
+    chmod +x "$INSTALL_PATH/bin/pgbench"
     
     echo "ZIP installation completed successfully!"
-    echo "PostgreSQL DSQL (pdsql) installed to: $INSTALL_PATH/bin/pdsql"
+    echo "PostgreSQL DSQL tools installed to:"
+    echo "  - pdsql (DSQL client): $INSTALL_PATH/bin/pdsql"
+    echo "  - pgbench (benchmark tool): $INSTALL_PATH/bin/pgbench"
     
     # Check if installation path is in PATH
     if [[ ":$PATH:" != *":$INSTALL_PATH/bin:"* ]]; then
