@@ -51,7 +51,7 @@ else
     echo "  aws-dsql-auth submodules already initialized."
 fi
 
-if [ ! -f "aws-dsql-auth/build/install/lib64/libaws-dsql-auth.a" ]; then
+if [ ! -d "aws-dsql-auth/build/install/" ]; then
     # Build aws-dsql-auth
     echo "  Building aws-dsql-auth library..."
     cd aws-dsql-auth

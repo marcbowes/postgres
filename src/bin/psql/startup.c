@@ -6,6 +6,7 @@
  * src/bin/psql/startup.c
  */
 #include "postgres_fe.h"
+#include "libpq-fe.h"
 
 #ifndef WIN32
 #include <unistd.h>
@@ -25,6 +26,8 @@
 #include "input.h"
 #include "mainloop.h"
 #include "settings.h"
+
+#include "fe-dsql-auth.h"
 
 /*
  * Global psql options
@@ -221,6 +224,29 @@ main(int argc, char *argv[])
 	{
 		setenv("PGDSQL", "1", 1);
 		pset.getPassword = TRI_NO;
+		
+		/* Initialize DSQL token generator */
+		if (dsql_initialize_token_generator() != 0)
+		{
+			pg_fatal("Failed to initialize DSQL token generator");
+		}
+		
+		/* Validate AWS credentials */
+		{
+			char *err_msg = NULL;
+			if (dsql_validate_aws_credentials(&err_msg) != 0)
+			{
+				if (err_msg)
+				{
+					pg_fatal("DSQL credential validation failed: %s", err_msg);
+					free(err_msg);
+				}
+				else
+				{
+					pg_fatal("DSQL credential validation failed");
+				}
+			}
+		}
 	}
 
 	/*

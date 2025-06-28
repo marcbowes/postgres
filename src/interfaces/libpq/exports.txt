@@ -211,3 +211,7 @@ PQgetAuthDataHook         208
 PQdefaultAuthDataHook     209
 PQfullProtocolVersion     210
 appendPQExpBufferVA       211
+dsql_initialize_token_generator 212
+dsql_generate_token       213
+dsql_validate_aws_credentials 214
+dsql_cleanup              215

@@ -1441,7 +1441,7 @@ pqConnectOptions2(PGconn *conn)
 					pwhost = conn->connhost[i].hostaddr;
 			
 			is_admin = strcmp("admin", conn->pguser) == 0;
-			token = generate_dsql_token(pwhost, is_admin, &err_msg);
+			token = dsql_generate_token(pwhost, is_admin, &err_msg);
 			if (!token)
 			{
 				libpq_append_conn_error(conn, "DSQL token generation failed for host=%s: %s", 

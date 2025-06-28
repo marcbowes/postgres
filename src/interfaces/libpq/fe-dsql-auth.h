@@ -10,10 +10,16 @@
 
 #include <stdbool.h>
 
+/* Initialize the DSQL token generator */
+int dsql_initialize_token_generator(void);
+
 /* Generate a DSQL authentication token for the specified endpoint */
-char *generate_dsql_token(const char *endpoint, bool admin, char **err_msg);
+char *dsql_generate_token(const char *endpoint, bool admin, char **err_msg);
+
+/* Initialize and validate AWS credentials early (for startup validation) */
+int dsql_validate_aws_credentials(char **err_msg);
 
 /* Clean up DSQL authentication resources */
-void dsql_auth_cleanup(void);
+void dsql_cleanup(void);
 
 #endif /* FE_DSQL_AUTH_H */

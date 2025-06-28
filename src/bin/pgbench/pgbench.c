@@ -68,6 +68,7 @@
 #include "pgbench.h"
 #include "port/pg_bitutils.h"
 #include "portability/instr_time.h"
+#include "fe-dsql-auth.h"
 
 /* X/Open (XSI) requires <math.h> to provide M_PI, but core POSIX does not */
 #ifndef M_PI
@@ -7124,6 +7125,29 @@ main(int argc, char **argv)
 		setenv("PGDSQL", "1", 1);
 		is_no_vacuum = true;
 		foreign_keys = false;
+		
+		/* Initialize DSQL token generator */
+		if (dsql_initialize_token_generator() != 0)
+		{
+			pg_fatal("Failed to initialize DSQL token generator");
+		}
+		
+		/* Validate AWS credentials */
+		{
+			char *err_msg = NULL;
+			if (dsql_validate_aws_credentials(&err_msg) != 0)
+			{
+				if (err_msg)
+				{
+					pg_fatal("DSQL credential validation failed: %s", err_msg);
+					free(err_msg);
+				}
+				else
+				{
+					pg_fatal("DSQL credential validation failed");
+				}
+			}
+		}
 	}
 
 	/* set default script if none */

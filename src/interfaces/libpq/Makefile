@@ -90,15 +90,19 @@ ifeq ($(PORTNAME), linux)
 	# Link with AWS libraries using start-group to resolve dependencies
 	$(LD) -r -o fe-dsql-auth-with-aws.o fe-dsql-auth-temp.o --start-group $(AWS_DSQL_AUTH_ALL_LIBS) --end-group
 	# Create a list of symbols to keep (only the public API from fe-dsql-auth.h)
-	echo "generate_dsql_token" > keep-symbols.txt
-	echo "dsql_auth_cleanup" >> keep-symbols.txt
+	echo "dsql_initialize_token_generator" > keep-symbols.txt
+	echo "dsql_generate_token" >> keep-symbols.txt
+	echo "dsql_validate_aws_credentials" >> keep-symbols.txt
+	echo "dsql_cleanup" >> keep-symbols.txt
 	# Hide all symbols except the ones we want to keep
 	objcopy --keep-global-symbols=keep-symbols.txt fe-dsql-auth-with-aws.o $@
 	rm -f fe-dsql-auth-temp.o fe-dsql-auth-with-aws.o keep-symbols.txt
 else ifeq ($(PORTNAME), darwin)
 	# macOS: Use ld with exported symbols list
-	echo "_generate_dsql_token" > exported-symbols.txt
-	echo "_dsql_auth_cleanup" >> exported-symbols.txt
+	echo "_dsql_initialize_token_generator" > exported-symbols.txt
+	echo "_dsql_generate_token" >> exported-symbols.txt
+	echo "_dsql_validate_aws_credentials" >> exported-symbols.txt
+	echo "_dsql_cleanup" >> exported-symbols.txt
 	$(LD) -r -o $@ fe-dsql-auth-temp.o -exported_symbols_list exported-symbols.txt $(AWS_DSQL_AUTH_ALL_LIBS)
 	rm -f fe-dsql-auth-temp.o exported-symbols.txt
 else
