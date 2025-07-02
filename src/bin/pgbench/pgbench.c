@@ -4859,8 +4859,8 @@ initCreateTables(PGconn *con)
 	static const struct ddlinfo DDLs[] = {
 		{
 			"pgbench_history",
-			"id uuid default gen_random_uuid(),tid int,bid int,aid    int,delta int,mtime timestamp,filler char(22)",
-			"id uuid default gen_random_uuid(),tid int,bid int,aid bigint,delta int,mtime timestamp,filler char(22)",
+			"id uuid primary key default gen_random_uuid(),tid int,bid int,aid    int,delta int,mtime timestamp,filler char(22)",
+			"id uuid primary key default gen_random_uuid(),tid int,bid int,aid bigint,delta int,mtime timestamp,filler char(22)",
 			0
 		},
 		{
