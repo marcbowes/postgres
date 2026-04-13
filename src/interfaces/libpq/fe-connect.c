@@ -882,7 +882,7 @@ PQconnectStartParams(const char *const *keywords,
 	if (conn == NULL)
 		return NULL;
 
-	if (strcmp(getenv("PGDSQL"), "1") == 0) {
+	if (getenv("PGDSQL") != NULL && strcmp(getenv("PGDSQL"), "1") == 0) {
 		conn->is_dsql = true;
 		conn->sslmode = strdup("direct");
 		conn->auth_required = true;

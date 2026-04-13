@@ -853,7 +853,8 @@ static const PsqlScanCallbacks pgbench_callbacks = {
 };
 
 static bool is_dsql() {
-	return strcmp(getenv("PGDSQL"), "1") == 0;
+	const char *val = getenv("PGDSQL");
+	return val != NULL && strcmp(val, "1") == 0;
 }
 
 static char
