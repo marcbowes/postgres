@@ -331,7 +331,7 @@ $node_p->safe_psql($db1,
 $node_p->wait_for_replay_catchup($node_s);
 
 # Create user-defined publications, wait for streaming replication to sync them
-# to the standby, then verify that '--remove'
+# to the standby, then verify that '--clean'
 # removes them.
 $node_p->safe_psql(
 	$db1, qq(
@@ -341,8 +341,8 @@ $node_p->safe_psql(
 
 $node_p->wait_for_replay_catchup($node_s);
 
-ok($node_s->safe_psql($db1, "SELECT COUNT(*) = 2 FROM pg_publication"),
-	'two pre-existing publications on subscriber');
+is($node_s->safe_psql($db1, "SELECT COUNT(*) FROM pg_publication"),
+	'2', 'two pre-existing publications on subscriber');
 
 $node_s->stop;
 
@@ -436,17 +436,17 @@ my ($stdout, $stderr) = run_command(
 
 # Verify that the required logical replication objects are output.
 # The expected count 3 refers to postgres, $db1 and $db2 databases.
-is(scalar(() = $stderr =~ /creating publication/g),
+is(scalar(() = $stderr =~ /would create publication/g),
 	3, "verify publications are created for all databases");
-is(scalar(() = $stderr =~ /creating the replication slot/g),
+is(scalar(() = $stderr =~ /would create the replication slot/g),
 	3, "verify replication slots are created for all databases");
-is(scalar(() = $stderr =~ /creating subscription/g),
+is(scalar(() = $stderr =~ /would create subscription/g),
 	3, "verify subscriptions are created for all databases");
 
 # Run pg_createsubscriber on node S.  --verbose is used twice
 # to show more information.
 # In passing, also test the --enable-two-phase option and
-# --remove option
+# --clean option
 command_ok(
 	[
 		'pg_createsubscriber',
@@ -463,7 +463,7 @@ command_ok(
 		'--database' => $db1,
 		'--database' => $db2,
 		'--enable-two-phase',
-		'--remove' => 'publications',
+		'--clean' => 'publications',
 	],
 	'run pg_createsubscriber on node S');
 

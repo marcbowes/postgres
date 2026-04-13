@@ -983,10 +983,10 @@ AlterSubscription_refresh(Subscription *sub, bool copy_data,
 					 *
 					 * It is possible that the origin is not yet created for
 					 * tablesync worker, this can happen for the states before
-					 * SUBREL_STATE_FINISHEDCOPY. The tablesync worker or
-					 * apply worker can also concurrently try to drop the
-					 * origin and by this time the origin might be already
-					 * removed. For these reasons, passing missing_ok = true.
+					 * SUBREL_STATE_DATASYNC. The tablesync worker or apply
+					 * worker can also concurrently try to drop the origin and
+					 * by this time the origin might be already removed. For
+					 * these reasons, passing missing_ok = true.
 					 */
 					ReplicationOriginNameForLogicalRep(sub->oid, relid, originname,
 													   sizeof(originname));
@@ -1267,7 +1267,7 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 						IsSet(opts.specified_opts, SUBOPT_SLOT_NAME))
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("slot_name and two_phase cannot be altered at the same time")));
+								 errmsg("\"slot_name\" and \"two_phase\" cannot be altered at the same time")));
 
 					/*
 					 * Note that workers may still survive even if the
@@ -1283,7 +1283,7 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 					if (logicalrep_workers_find(subid, true, true))
 						ereport(ERROR,
 								(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-								 errmsg("cannot alter two_phase when logical replication worker is still running"),
+								 errmsg("cannot alter \"two_phase\" when logical replication worker is still running"),
 								 errhint("Try again after some time.")));
 
 					/*
@@ -1297,7 +1297,7 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 						LookupGXactBySubid(subid))
 						ereport(ERROR,
 								(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-								 errmsg("cannot disable two_phase when prepared transactions are present"),
+								 errmsg("cannot disable \"two_phase\" when prepared transactions exist"),
 								 errhint("Resolve these transactions and try again.")));
 
 					/* Change system catalog accordingly */
@@ -1645,10 +1645,12 @@ DropSubscription(DropSubscriptionStmt *stmt, bool isTopLevel)
 	bool		must_use_password;
 
 	/*
-	 * Lock pg_subscription with AccessExclusiveLock to ensure that the
-	 * launcher doesn't restart new worker during dropping the subscription
+	 * The launcher may concurrently start a new worker for this subscription.
+	 * During initialization, the worker checks for subscription validity and
+	 * exits if the subscription has already been dropped. See
+	 * InitializeLogRepWorker.
 	 */
-	rel = table_open(SubscriptionRelationId, AccessExclusiveLock);
+	rel = table_open(SubscriptionRelationId, RowExclusiveLock);
 
 	tup = SearchSysCache2(SUBSCRIPTIONNAME, MyDatabaseId,
 						  CStringGetDatum(stmt->subname));
@@ -1788,7 +1790,7 @@ DropSubscription(DropSubscriptionStmt *stmt, bool isTopLevel)
 		 *
 		 * It is possible that the origin is not yet created for tablesync
 		 * worker so passing missing_ok = true. This can happen for the states
-		 * before SUBREL_STATE_FINISHEDCOPY.
+		 * before SUBREL_STATE_DATASYNC.
 		 */
 		ReplicationOriginNameForLogicalRep(subid, relid, originname,
 										   sizeof(originname));

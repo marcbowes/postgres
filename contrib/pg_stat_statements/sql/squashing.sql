@@ -32,7 +32,7 @@ SELECT WHERE 1 IN (1, int4(1), int4(2), 2);
 SELECT WHERE 1 = ANY (ARRAY[1, int4(1), int4(2), 2]);
 SELECT query, calls FROM pg_stat_statements ORDER BY query COLLATE "C";
 
--- external parameters will not be squashed
+-- external parameters will be squashed
 SELECT pg_stat_statements_reset() IS NOT NULL AS t;
 SELECT * FROM test_squash WHERE id IN ($1, $2, $3, $4, $5)  \bind 1 2 3 4 5
 ;
@@ -40,7 +40,7 @@ SELECT * FROM test_squash WHERE id::text = ANY(ARRAY[$1, $2, $3, $4, $5]) \bind 
 ;
 SELECT query, calls FROM pg_stat_statements ORDER BY query COLLATE "C";
 
--- neither are prepared statements
+-- prepared statements will also be squashed
 -- the IN and ARRAY forms of this statement will have the same queryId
 SELECT pg_stat_statements_reset() IS NOT NULL AS t;
 PREPARE p1(int, int, int, int, int) AS
@@ -234,7 +234,7 @@ SELECT * FROM test_squash_jsonb WHERE data = ANY(ARRAY
 	 (SELECT '"10"')::jsonb]);
 SELECT query, calls FROM pg_stat_statements ORDER BY query COLLATE "C";
 
--- Multiple CoerceViaIO wrapping a constant. Will not squash
+-- Multiple CoerceViaIO are squashed
 SELECT pg_stat_statements_reset() IS NOT NULL AS t;
 SELECT WHERE 1 IN (1::text::int::text::int, 1::text::int::text::int);
 SELECT WHERE 1 = ANY(ARRAY[1::text::int::text::int, 1::text::int::text::int]);
@@ -245,14 +245,15 @@ SELECT query, calls FROM pg_stat_statements ORDER BY query COLLATE "C";
 --
 
 SELECT pg_stat_statements_reset() IS NOT NULL AS t;
--- if there is only one level of RelabelType, the list will be squashable
+-- However many layers of RelabelType there are, the list will be squashable.
 SELECT * FROM test_squash WHERE id IN
 	(1::oid, 2::oid, 3::oid, 4::oid, 5::oid, 6::oid, 7::oid, 8::oid, 9::oid);
 SELECT ARRAY[1::oid, 2::oid, 3::oid, 4::oid, 5::oid, 6::oid, 7::oid, 8::oid, 9::oid];
--- if there is at least one element with multiple levels of RelabelType,
--- the list will not be squashable
 SELECT * FROM test_squash WHERE id IN (1::oid, 2::oid::int::oid);
 SELECT * FROM test_squash WHERE id = ANY(ARRAY[1::oid, 2::oid::int::oid]);
+-- RelabelType together with CoerceViaIO is also squashable
+SELECT * FROM test_squash WHERE id = ANY(ARRAY[1::oid::text::int::oid, 2::oid::int::oid]);
+SELECT * FROM test_squash WHERE id = ANY(ARRAY[1::text::int::oid, 2::oid::int::oid]);
 SELECT query, calls FROM pg_stat_statements ORDER BY query COLLATE "C";
 
 --
@@ -290,6 +291,36 @@ select where '1' IN ('1'::int::text, '2'::int::text);
 select where '1' = ANY (array['1'::int::text, '2'::int::text]);
 SELECT query, calls FROM pg_stat_statements ORDER BY query COLLATE "C";
 
+-- composite function with row expansion
+create table test_composite(x integer);
+CREATE FUNCTION composite_f(a integer[], out x integer, out y integer) returns
+record as $$            begin
+        x = a[1];
+        y = a[2];
+    end;
+$$ language plpgsql;
+SELECT pg_stat_statements_reset() IS NOT NULL AS t;
+SELECT ((composite_f(array[1, 2]))).* FROM test_composite;
+SELECT ((composite_f(array[1, 2, 3]))).* FROM test_composite;
+SELECT ((composite_f(array[1, 2, 3]))).*, 1, 2, 3, ((composite_f(array[1, 2, 3]))).*, 1, 2
+FROM test_composite
+WHERE x IN (1, 2, 3);
+SELECT ((composite_f(array[1, $1, 3]))).*, 1 FROM test_composite \bind 1
+;
+-- ROW() expression with row expansion
+SELECT (ROW(ARRAY[1,2])).*;
+SELECT (ROW(ARRAY[1, 2], ARRAY[1, 2, 3])).*;
+SELECT 1, 2, (ROW(ARRAY[1, 2], ARRAY[1, 2, 3])).*, 3, 4;
+SELECT (ROW(ARRAY[1, 2], ARRAY[1, $1, 3])).*, 1 \bind 1
+;
+
+-- IN and ANY clauses with Vars are not squashed.
+SELECT * FROM test_squash a, test_squash b WHERE a.id IN (1, 2, 3, b.id, b.id + 1);
+SELECT * FROM test_squash a, test_squash b WHERE a.id = ANY (array[1, ((b.id + b.id * 2)), 5]);
+SELECT * FROM test_squash a, test_squash b WHERE a.id IN ($1, $2, $3, b.id, b.id + $4) \bind 1 2 3 1
+;
+SELECT query, calls FROM pg_stat_statements ORDER BY query COLLATE "C";
+
 --
 -- cleanup
 --
@@ -299,3 +330,5 @@ DROP TABLE test_squash_numeric;
 DROP TABLE test_squash_bigint;
 DROP TABLE test_squash_cast CASCADE;
 DROP TABLE test_squash_jsonb;
+DROP TABLE test_composite;
+DROP FUNCTION composite_f;

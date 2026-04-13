@@ -109,13 +109,6 @@
  * If ever a user needs to be aware of the tri-state value, they can fetch it
  * from the pg_subscription catalog (see column subtwophasestate).
  *
- * We don't allow to toggle two_phase option of a subscription because it can
- * lead to an inconsistent replica. Consider, initially, it was on and we have
- * received some prepare then we turn it off, now at commit time the server
- * will send the entire transaction data along with the commit. With some more
- * analysis, we can allow changing this option from off to on but not sure if
- * that alone would be useful.
- *
  * Finally, to avoid problems mentioned in previous paragraphs from any
  * subsequent (not READY) tablesyncs (need to toggle two_phase option from 'on'
  * to 'off' and then again back to 'on') there is a restriction for
@@ -4689,6 +4682,13 @@ InitializeLogRepWorker(void)
 	StartTransactionCommand();
 	oldctx = MemoryContextSwitchTo(ApplyContext);
 
+	/*
+	 * Lock the subscription to prevent it from being concurrently dropped,
+	 * then re-verify its existence. After the initialization, the worker will
+	 * be terminated gracefully if the subscription is dropped.
+	 */
+	LockSharedObject(SubscriptionRelationId, MyLogicalRepWorker->subid, 0,
+					 AccessShareLock);
 	MySubscription = GetSubscription(MyLogicalRepWorker->subid, true);
 	if (!MySubscription)
 	{
@@ -4742,6 +4742,23 @@ InitializeLogRepWorker(void)
 						MySubscription->name)));
 
 	CommitTransactionCommand();
+
+	/*
+	 * Register a callback to reset the origin state before aborting any
+	 * pending transaction during shutdown (see ShutdownPostgres()). This will
+	 * avoid origin advancement for an incomplete transaction which could
+	 * otherwise lead to its loss as such a transaction won't be sent by the
+	 * server again.
+	 *
+	 * Note that even a LOG or DEBUG statement placed after setting the origin
+	 * state may process a shutdown signal before committing the current apply
+	 * operation. So, it is important to register such a callback here.
+	 *
+	 * Register this callback here to ensure that all types of logical
+	 * replication workers that set up origins and apply remote transactions
+	 * are protected.
+	 */
+	before_shmem_exit(replorigin_reset, (Datum) 0);
 }
 
 /*
@@ -4782,19 +4799,6 @@ SetupApplyOrSyncWorker(int worker_slot)
 	load_file("libpqwalreceiver", false);
 
 	InitializeLogRepWorker();
-
-	/*
-	 * Register a callback to reset the origin state before aborting any
-	 * pending transaction during shutdown (see ShutdownPostgres()). This will
-	 * avoid origin advancement for an in-complete transaction which could
-	 * otherwise lead to its loss as such a transaction won't be sent by the
-	 * server again.
-	 *
-	 * Note that even a LOG or DEBUG statement placed after setting the origin
-	 * state may process a shutdown signal before committing the current apply
-	 * operation. So, it is important to register such a callback here.
-	 */
-	before_shmem_exit(replorigin_reset, (Datum) 0);
 
 	/* Connect to the origin and start the replication. */
 	elog(DEBUG1, "connecting to publisher using connection string \"%s\"",

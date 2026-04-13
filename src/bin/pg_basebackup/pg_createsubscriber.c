@@ -46,7 +46,7 @@ struct CreateSubscriberOptions
 	SimpleStringList replslot_names;	/* list of replication slot names */
 	int			recovery_timeout;	/* stop recovery after this time */
 	bool		all_dbs;		/* all option */
-	SimpleStringList objecttypes_to_remove; /* list of object types to remove */
+	SimpleStringList objecttypes_to_clean;	/* list of object types to cleanup */
 };
 
 /* per-database publication/subscription info */
@@ -71,8 +71,8 @@ struct LogicalRepInfos
 {
 	struct LogicalRepInfo *dbinfo;
 	bool		two_phase;		/* enable-two-phase option */
-	bits32		objecttypes_to_remove;	/* flags indicating which object types
-										 * to remove on subscriber */
+	bits32		objecttypes_to_clean;	/* flags indicating which object types
+										 * to clean up on subscriber */
 };
 
 static void cleanup_objects_atexit(void);
@@ -253,13 +253,13 @@ usage(void)
 	printf(_("  -n, --dry-run                   dry run, just show what would be done\n"));
 	printf(_("  -p, --subscriber-port=PORT      subscriber port number (default %s)\n"), DEFAULT_SUB_PORT);
 	printf(_("  -P, --publisher-server=CONNSTR  publisher connection string\n"));
-	printf(_("  -R, --remove=OBJECTTYPE         remove all objects of the specified type from specified\n"
-			 "                                  databases on the subscriber; accepts: \"%s\"\n"), "publications");
 	printf(_("  -s, --socketdir=DIR             socket directory to use (default current dir.)\n"));
 	printf(_("  -t, --recovery-timeout=SECS     seconds to wait for recovery to end\n"));
 	printf(_("  -T, --enable-two-phase          enable two-phase commit for all subscriptions\n"));
 	printf(_("  -U, --subscriber-username=NAME  user name for subscriber connection\n"));
 	printf(_("  -v, --verbose                   output verbose messages\n"));
+	printf(_("      --clean=OBJECTTYPE          drop all objects of the specified type from specified\n"
+			 "                                  databases on the subscriber; accepts: \"%s\"\n"), "publications");
 	printf(_("      --config-file=FILENAME      use specified main server configuration\n"
 			 "                                  file when running target cluster\n"));
 	printf(_("      --publication=NAME          publication name\n"));
@@ -679,13 +679,20 @@ modify_subscriber_sysid(const struct CreateSubscriberOptions *opt)
 	cf->system_identifier |= ((uint64) tv.tv_usec) << 12;
 	cf->system_identifier |= getpid() & 0xFFF;
 
-	if (!dry_run)
+	if (dry_run)
+		pg_log_info("dry-run: would set system identifier to %" PRIu64 " on subscriber",
+					cf->system_identifier);
+	else
+	{
 		update_controlfile(subscriber_dir, cf, true);
+		pg_log_info("system identifier is %" PRIu64 " on subscriber",
+					cf->system_identifier);
+	}
 
-	pg_log_info("system identifier is %" PRIu64 " on subscriber",
-				cf->system_identifier);
-
-	pg_log_info("running pg_resetwal on the subscriber");
+	if (dry_run)
+		pg_log_info("dry-run: would run pg_resetwal on the subscriber");
+	else
+		pg_log_info("running pg_resetwal on the subscriber");
 
 	cmd_str = psprintf("\"%s\" -D \"%s\" > \"%s\"", pg_resetwal_path,
 					   subscriber_dir, DEVNULL);
@@ -697,9 +704,9 @@ modify_subscriber_sysid(const struct CreateSubscriberOptions *opt)
 		int			rc = system(cmd_str);
 
 		if (rc == 0)
-			pg_log_info("subscriber successfully changed the system identifier");
+			pg_log_info("successfully reset WAL on the subscriber");
 		else
-			pg_fatal("could not change system identifier of subscriber: %s", wait_result_to_str(rc));
+			pg_fatal("could not reset WAL on subscriber: %s", wait_result_to_str(rc));
 	}
 
 	pg_free(cf);
@@ -977,9 +984,9 @@ check_publisher(const struct LogicalRepInfo *dbinfo)
 	}
 
 	/*
-	 * Validate 'max_slot_wal_keep_size'. If this parameter is set to a
-	 * non-default value, it may cause replication failures due to required
-	 * WAL files being prematurely removed.
+	 * In dry-run mode, validate 'max_slot_wal_keep_size'. If this parameter
+	 * is set to a non-default value, it may cause replication failures due to
+	 * required WAL files being prematurely removed.
 	 */
 	if (dry_run && (strcmp(max_slot_wal_keep_size, "-1") != 0))
 	{
@@ -1124,11 +1131,14 @@ drop_existing_subscriptions(PGconn *conn, const char *subname, const char *dbnam
 					  subname);
 	appendPQExpBuffer(query, " DROP SUBSCRIPTION %s;", subname);
 
-	pg_log_info("dropping subscription \"%s\" in database \"%s\"",
-				subname, dbname);
-
-	if (!dry_run)
+	if (dry_run)
+		pg_log_info("dry-run: would drop subscription \"%s\" in database \"%s\"",
+					subname, dbname);
+	else
 	{
+		pg_log_info("dropping subscription \"%s\" in database \"%s\"",
+					subname, dbname);
+
 		res = PQexec(conn, query->data);
 
 		if (PQresultStatus(res) != PGRES_COMMAND_OK)
@@ -1250,8 +1260,17 @@ setup_recovery(const struct LogicalRepInfo *dbinfo, const char *datadir, const c
 	appendPQExpBufferStr(recoveryconfcontents, "recovery_target = ''\n");
 	appendPQExpBufferStr(recoveryconfcontents,
 						 "recovery_target_timeline = 'latest'\n");
+
+	/*
+	 * Set recovery_target_inclusive = false to avoid reapplying the
+	 * transaction committed at 'lsn' after subscription is enabled. This is
+	 * because the provided 'lsn' is also used as the replication start point
+	 * for the subscription. So, the server can send the transaction committed
+	 * at that 'lsn' after replication is started which can lead to applying
+	 * the same transaction twice if we keep recovery_target_inclusive = true.
+	 */
 	appendPQExpBufferStr(recoveryconfcontents,
-						 "recovery_target_inclusive = true\n");
+						 "recovery_target_inclusive = false\n");
 	appendPQExpBufferStr(recoveryconfcontents,
 						 "recovery_target_action = promote\n");
 	appendPQExpBufferStr(recoveryconfcontents, "recovery_target_name = ''\n");
@@ -1260,7 +1279,7 @@ setup_recovery(const struct LogicalRepInfo *dbinfo, const char *datadir, const c
 
 	if (dry_run)
 	{
-		appendPQExpBufferStr(recoveryconfcontents, "# dry run mode");
+		appendPQExpBufferStr(recoveryconfcontents, "# dry run mode\n");
 		appendPQExpBuffer(recoveryconfcontents,
 						  "recovery_target_lsn = '%X/%X'\n",
 						  LSN_FORMAT_ARGS((XLogRecPtr) InvalidXLogRecPtr));
@@ -1366,8 +1385,12 @@ create_logical_replication_slot(PGconn *conn, struct LogicalRepInfo *dbinfo)
 
 	Assert(conn != NULL);
 
-	pg_log_info("creating the replication slot \"%s\" in database \"%s\"",
-				slot_name, dbinfo->dbname);
+	if (dry_run)
+		pg_log_info("dry-run: would create the replication slot \"%s\" in database \"%s\" on publisher",
+					slot_name, dbinfo->dbname);
+	else
+		pg_log_info("creating the replication slot \"%s\" in database \"%s\" on publisher",
+					slot_name, dbinfo->dbname);
 
 	slot_name_esc = PQescapeLiteral(conn, slot_name, strlen(slot_name));
 
@@ -1415,8 +1438,12 @@ drop_replication_slot(PGconn *conn, struct LogicalRepInfo *dbinfo,
 
 	Assert(conn != NULL);
 
-	pg_log_info("dropping the replication slot \"%s\" in database \"%s\"",
-				slot_name, dbinfo->dbname);
+	if (dry_run)
+		pg_log_info("dry-run: would drop the replication slot \"%s\" in database \"%s\"",
+					slot_name, dbinfo->dbname);
+	else
+		pg_log_info("dropping the replication slot \"%s\" in database \"%s\"",
+					slot_name, dbinfo->dbname);
 
 	slot_name_esc = PQescapeLiteral(conn, slot_name, strlen(slot_name));
 
@@ -1560,13 +1587,8 @@ wait_for_end_recovery(const char *conninfo, const struct CreateSubscriberOptions
 
 	for (;;)
 	{
-		bool		in_recovery = server_is_in_recovery(conn);
-
-		/*
-		 * Does the recovery process finish? In dry run mode, there is no
-		 * recovery mode. Bail out as the recovery process has ended.
-		 */
-		if (!in_recovery || dry_run)
+		/* Did the recovery process finish? We're done if so. */
+		if (dry_run || !server_is_in_recovery(conn))
 		{
 			status = POSTMASTER_READY;
 			recovery_ended = true;
@@ -1642,8 +1664,12 @@ create_publication(PGconn *conn, struct LogicalRepInfo *dbinfo)
 	PQclear(res);
 	resetPQExpBuffer(str);
 
-	pg_log_info("creating publication \"%s\" in database \"%s\"",
-				dbinfo->pubname, dbinfo->dbname);
+	if (dry_run)
+		pg_log_info("dry-run: would create publication \"%s\" in database \"%s\"",
+					dbinfo->pubname, dbinfo->dbname);
+	else
+		pg_log_info("creating publication \"%s\" in database \"%s\"",
+					dbinfo->pubname, dbinfo->dbname);
 
 	appendPQExpBuffer(str, "CREATE PUBLICATION %s FOR ALL TABLES",
 					  ipubname_esc);
@@ -1685,8 +1711,12 @@ drop_publication(PGconn *conn, const char *pubname, const char *dbname,
 
 	pubname_esc = PQescapeIdentifier(conn, pubname, strlen(pubname));
 
-	pg_log_info("dropping publication \"%s\" in database \"%s\"",
-				pubname, dbname);
+	if (dry_run)
+		pg_log_info("dry-run: would drop publication \"%s\" in database \"%s\"",
+					pubname, dbname);
+	else
+		pg_log_info("dropping publication \"%s\" in database \"%s\"",
+					pubname, dbname);
 
 	appendPQExpBuffer(str, "DROP PUBLICATION %s", pubname_esc);
 
@@ -1730,7 +1760,7 @@ static void
 check_and_drop_publications(PGconn *conn, struct LogicalRepInfo *dbinfo)
 {
 	PGresult   *res;
-	bool		drop_all_pubs = dbinfos.objecttypes_to_remove & OBJECTTYPE_PUBLICATIONS;
+	bool		drop_all_pubs = dbinfos.objecttypes_to_clean & OBJECTTYPE_PUBLICATIONS;
 
 	Assert(conn != NULL);
 
@@ -1794,8 +1824,12 @@ create_subscription(PGconn *conn, const struct LogicalRepInfo *dbinfo)
 	pubconninfo_esc = PQescapeLiteral(conn, dbinfo->pubconninfo, strlen(dbinfo->pubconninfo));
 	replslotname_esc = PQescapeLiteral(conn, dbinfo->replslotname, strlen(dbinfo->replslotname));
 
-	pg_log_info("creating subscription \"%s\" in database \"%s\"",
-				dbinfo->subname, dbinfo->dbname);
+	if (dry_run)
+		pg_log_info("dry-run: would create subscription \"%s\" in database \"%s\"",
+					dbinfo->subname, dbinfo->dbname);
+	else
+		pg_log_info("creating subscription \"%s\" in database \"%s\"",
+					dbinfo->subname, dbinfo->dbname);
 
 	appendPQExpBuffer(str,
 					  "CREATE SUBSCRIPTION %s CONNECTION %s PUBLICATION %s "
@@ -1892,8 +1926,12 @@ set_replication_progress(PGconn *conn, const struct LogicalRepInfo *dbinfo, cons
 	 */
 	originname = psprintf("pg_%u", suboid);
 
-	pg_log_info("setting the replication progress (node name \"%s\", LSN %s) in database \"%s\"",
-				originname, lsnstr, dbinfo->dbname);
+	if (dry_run)
+		pg_log_info("dry-run: would set the replication progress (node name \"%s\", LSN %s) in database \"%s\"",
+					originname, lsnstr, dbinfo->dbname);
+	else
+		pg_log_info("setting the replication progress (node name \"%s\", LSN %s) in database \"%s\"",
+					originname, lsnstr, dbinfo->dbname);
 
 	resetPQExpBuffer(str);
 	appendPQExpBuffer(str,
@@ -1938,8 +1976,12 @@ enable_subscription(PGconn *conn, const struct LogicalRepInfo *dbinfo)
 
 	subname = PQescapeIdentifier(conn, dbinfo->subname, strlen(dbinfo->subname));
 
-	pg_log_info("enabling subscription \"%s\" in database \"%s\"",
-				dbinfo->subname, dbinfo->dbname);
+	if (dry_run)
+		pg_log_info("dry-run: would enable subscription \"%s\" in database \"%s\"",
+					dbinfo->subname, dbinfo->dbname);
+	else
+		pg_log_info("enabling subscription \"%s\" in database \"%s\"",
+					dbinfo->subname, dbinfo->dbname);
 
 	appendPQExpBuffer(str, "ALTER SUBSCRIPTION %s ENABLE", subname);
 
@@ -2026,7 +2068,6 @@ main(int argc, char **argv)
 		{"dry-run", no_argument, NULL, 'n'},
 		{"subscriber-port", required_argument, NULL, 'p'},
 		{"publisher-server", required_argument, NULL, 'P'},
-		{"remove", required_argument, NULL, 'R'},
 		{"socketdir", required_argument, NULL, 's'},
 		{"recovery-timeout", required_argument, NULL, 't'},
 		{"enable-two-phase", no_argument, NULL, 'T'},
@@ -2038,6 +2079,7 @@ main(int argc, char **argv)
 		{"publication", required_argument, NULL, 2},
 		{"replication-slot", required_argument, NULL, 3},
 		{"subscription", required_argument, NULL, 4},
+		{"clean", required_argument, NULL, 5},
 		{NULL, 0, NULL, 0}
 	};
 
@@ -2109,7 +2151,7 @@ main(int argc, char **argv)
 
 	get_restricted_token();
 
-	while ((c = getopt_long(argc, argv, "ad:D:np:P:R:s:t:TU:v",
+	while ((c = getopt_long(argc, argv, "ad:D:np:P:s:t:TU:v",
 							long_options, &option_index)) != -1)
 	{
 		switch (c)
@@ -2138,12 +2180,6 @@ main(int argc, char **argv)
 				break;
 			case 'P':
 				opt.pub_conninfo_str = pg_strdup(optarg);
-				break;
-			case 'R':
-				if (!simple_string_list_member(&opt.objecttypes_to_remove, optarg))
-					simple_string_list_append(&opt.objecttypes_to_remove, optarg);
-				else
-					pg_fatal("object type \"%s\" specified more than once for -R/--remove", optarg);
 				break;
 			case 's':
 				opt.socket_dir = pg_strdup(optarg);
@@ -2191,6 +2227,12 @@ main(int argc, char **argv)
 				else
 					pg_fatal("subscription \"%s\" specified more than once for --subscription", optarg);
 				break;
+			case 5:
+				if (!simple_string_list_member(&opt.objecttypes_to_clean, optarg))
+					simple_string_list_append(&opt.objecttypes_to_clean, optarg);
+				else
+					pg_fatal("object type \"%s\" specified more than once for --clean", optarg);
+				break;
 			default:
 				/* getopt_long already emitted a complaint */
 				pg_log_error_hint("Try \"%s --help\" for more information.", progname);
@@ -2214,7 +2256,8 @@ main(int argc, char **argv)
 
 		if (bad_switch)
 		{
-			pg_log_error("options %s and -a/--all cannot be used together", bad_switch);
+			pg_log_error("options %s and %s cannot be used together",
+						 bad_switch, "-a/--all");
 			pg_log_error_hint("Try \"%s --help\" for more information.", progname);
 			exit(1);
 		}
@@ -2334,13 +2377,14 @@ main(int argc, char **argv)
 	}
 
 	/* Verify the object types specified for removal from the subscriber */
-	for (SimpleStringListCell *cell = opt.objecttypes_to_remove.head; cell; cell = cell->next)
+	for (SimpleStringListCell *cell = opt.objecttypes_to_clean.head; cell; cell = cell->next)
 	{
 		if (pg_strcasecmp(cell->val, "publications") == 0)
-			dbinfos.objecttypes_to_remove |= OBJECTTYPE_PUBLICATIONS;
+			dbinfos.objecttypes_to_clean |= OBJECTTYPE_PUBLICATIONS;
 		else
 		{
-			pg_log_error("invalid object type \"%s\" specified for -R/--remove", cell->val);
+			pg_log_error("invalid object type \"%s\" specified for %s",
+						 cell->val, "--clean");
 			pg_log_error_hint("The valid value is: \"%s\"", "publications");
 			exit(1);
 		}

@@ -603,19 +603,16 @@ pg_get_shmem_allocations_numa(PG_FUNCTION_ARGS)
 	InitMaterializedSRF(fcinfo, 0);
 
 	max_nodes = pg_numa_get_max_node();
-	nodes = palloc(sizeof(Size) * (max_nodes + 1));
+	nodes = palloc(sizeof(Size) * (max_nodes + 2));
 
 	/*
-	 * Different database block sizes (4kB, 8kB, ..., 32kB) can be used, while
-	 * the OS may have different memory page sizes.
+	 * Shared memory allocations can vary in size and may not align with OS
+	 * memory page boundaries, while NUMA queries work on pages.
 	 *
-	 * To correctly map between them, we need to: 1. Determine the OS memory
-	 * page size 2. Calculate how many OS pages are used by all buffer blocks
-	 * 3. Calculate how many OS pages are contained within each database
-	 * block.
-	 *
-	 * This information is needed before calling move_pages() for NUMA memory
-	 * node inquiry.
+	 * To correctly map each allocation to NUMA nodes, we need to: 1.
+	 * Determine the OS memory page size. 2. Align each allocation's start/end
+	 * addresses to page boundaries. 3. Query NUMA node information for all
+	 * pages spanning the allocation.
 	 */
 	os_page_size = pg_get_shmem_pagesize();
 
@@ -642,7 +639,6 @@ pg_get_shmem_allocations_numa(PG_FUNCTION_ARGS)
 	hash_seq_init(&hstat, ShmemIndex);
 
 	/* output all allocated entries */
-	memset(nulls, 0, sizeof(nulls));
 	while ((ent = (ShmemIndexEnt *) hash_seq_search(&hstat)) != NULL)
 	{
 		int			i;
@@ -679,12 +675,10 @@ pg_get_shmem_allocations_numa(PG_FUNCTION_ARGS)
 		 */
 		for (i = 0; i < shm_ent_page_count; i++)
 		{
-			volatile uint64 touch pg_attribute_unused();
-
 			page_ptrs[i] = startptr + (i * os_page_size);
 
 			if (firstNumaTouch)
-				pg_numa_touch_mem_if_required(touch, page_ptrs[i]);
+				pg_numa_touch_mem_if_required(page_ptrs[i]);
 
 			CHECK_FOR_INTERRUPTS();
 		}
@@ -693,21 +687,32 @@ pg_get_shmem_allocations_numa(PG_FUNCTION_ARGS)
 			elog(ERROR, "failed NUMA pages inquiry status: %m");
 
 		/* Count number of NUMA nodes used for this shared memory entry */
-		memset(nodes, 0, sizeof(Size) * (max_nodes + 1));
+		memset(nodes, 0, sizeof(Size) * (max_nodes + 2));
 
 		for (i = 0; i < shm_ent_page_count; i++)
 		{
 			int			s = pages_status[i];
 
 			/* Ensure we are adding only valid index to the array */
-			if (s < 0 || s > max_nodes)
+			if (s >= 0 && s <= max_nodes)
 			{
-				elog(ERROR, "invalid NUMA node id outside of allowed range "
-					 "[0, " UINT64_FORMAT "]: %d", max_nodes, s);
+				/* valid NUMA node */
+				nodes[s]++;
+				continue;
+			}
+			else if (s == -2)
+			{
+				/* -2 means ENOENT (e.g. page was moved to swap) */
+				nodes[max_nodes + 1]++;
+				continue;
 			}
 
-			nodes[s]++;
+			elog(ERROR, "invalid NUMA node id outside of allowed range "
+				 "[0, " UINT64_FORMAT "]: %d", max_nodes, s);
 		}
+
+		/* no NULLs for regular nodes */
+		memset(nulls, 0, sizeof(nulls));
 
 		/*
 		 * Add one entry for each NUMA node, including those without allocated
@@ -722,6 +727,14 @@ pg_get_shmem_allocations_numa(PG_FUNCTION_ARGS)
 			tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc,
 								 values, nulls);
 		}
+
+		/* The last entry is used for pages without a NUMA node. */
+		nulls[1] = true;
+		values[0] = CStringGetTextDatum(ent->key);
+		values[2] = Int64GetDatum(nodes[max_nodes + 1] * os_page_size);
+
+		tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc,
+							 values, nulls);
 	}
 
 	LWLockRelease(ShmemIndexLock);

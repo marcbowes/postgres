@@ -37,6 +37,7 @@ tests += {
       'injection_points',
       'hashagg',
       'reindex_conc',
+      'vacuum',
     ],
     'regress_args': ['--dlpath', meson.build_root() / 'src/test/regress'],
     # The injection points are cluster-wide, so disable installcheck
@@ -47,6 +48,7 @@ tests += {
       'basic',
       'inplace',
       'syscache-update-pruned',
+      'heap_lock_update',
     ],
     'runningcheck': false, # see syscache-update-pruned
   },

@@ -375,6 +375,8 @@ make_icu_collator(const char *iculocstr, const char *icurules)
 							iculocstr, icurules, u_errorName(status))));
 		}
 
+		pfree(my_rules);
+		pfree(all_rules);
 		return collator_all_rules;
 	}
 }
@@ -700,7 +702,7 @@ u_strFoldCase_default(UChar *dest, int32_t destCapacity,
 					  UErrorCode *pErrorCode)
 {
 	uint32		options = U_FOLD_CASE_DEFAULT;
-	char		lang[3];
+	char		lang[ULOC_LANG_CAPACITY];
 	UErrorCode	status;
 
 	/*
@@ -710,8 +712,8 @@ u_strFoldCase_default(UChar *dest, int32_t destCapacity,
 	 * languages to enable the option.
 	 */
 	status = U_ZERO_ERROR;
-	uloc_getLanguage(locale, lang, 3, &status);
-	if (U_SUCCESS(status))
+	uloc_getLanguage(locale, lang, ULOC_LANG_CAPACITY, &status);
+	if (U_SUCCESS(status) && status != U_STRING_NOT_TERMINATED_WARNING)
 	{
 		/*
 		 * The option name is confusing, but it causes u_strFoldCase to use
@@ -830,6 +832,9 @@ strnxfrm_prefix_icu(char *dest, size_t destsize,
 		ereport(ERROR,
 				(errmsg("sort key generation failed: %s",
 						u_errorName(status))));
+
+	if (buf != sbuf)
+		pfree(buf);
 
 	return result_bsize;
 }

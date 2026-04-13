@@ -58,6 +58,7 @@
 #include "parser/parsetree.h"
 #include "partitioning/partdesc.h"
 #include "rewrite/rewriteManip.h"
+#include "utils/acl.h"
 #include "utils/backend_status.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
@@ -849,6 +850,38 @@ subquery_planner(PlannerGlobal *glob, Query *parse, PlannerInfo *parent_root,
 	}
 
 	/*
+	 * This would be a convenient time to check access permissions for all
+	 * relations mentioned in the query, since it would be better to fail now,
+	 * before doing any detailed planning.  However, for historical reasons,
+	 * we leave this to be done at executor startup.
+	 *
+	 * Note, however, that we do need to check access permissions for any view
+	 * relations mentioned in the query, in order to prevent information being
+	 * leaked by selectivity estimation functions, which only check view owner
+	 * permissions on underlying tables (see all_rows_selectable() and its
+	 * callers).  This is a little ugly, because it means that access
+	 * permissions for views will be checked twice, which is another reason
+	 * why it would be better to do all the ACL checks here.
+	 */
+	foreach(l, parse->rtable)
+	{
+		RangeTblEntry *rte = lfirst_node(RangeTblEntry, l);
+
+		if (rte->perminfoindex != 0 &&
+			rte->relkind == RELKIND_VIEW)
+		{
+			RTEPermissionInfo *perminfo;
+			bool		result;
+
+			perminfo = getRTEPermissionInfo(parse->rteperminfos, rte);
+			result = ExecCheckOneRelPerms(perminfo);
+			if (!result)
+				aclcheck_error(ACLCHECK_NO_PRIV, OBJECT_VIEW,
+							   get_rel_name(perminfo->relid));
+		}
+	}
+
+	/*
 	 * Preprocess RowMark information.  We need to do this after subquery
 	 * pullup, so that all base relations are present.
 	 */
@@ -1065,14 +1098,27 @@ subquery_planner(PlannerGlobal *glob, Query *parse, PlannerInfo *parent_root,
 		parse->hasTargetSRFs = expression_returns_set((Node *) parse->targetList);
 
 	/*
+	 * If we have grouping sets, expand the groupingSets tree of this query to
+	 * a flat list of grouping sets.  We need to do this before optimizing
+	 * HAVING, since we can't easily tell if there's an empty grouping set
+	 * until we have this representation.
+	 */
+	if (parse->groupingSets)
+	{
+		parse->groupingSets =
+			expand_grouping_sets(parse->groupingSets, parse->groupDistinct, -1);
+	}
+
+	/*
 	 * In some cases we may want to transfer a HAVING clause into WHERE. We
 	 * cannot do so if the HAVING clause contains aggregates (obviously) or
 	 * volatile functions (since a HAVING clause is supposed to be executed
-	 * only once per group).  We also can't do this if there are any nonempty
-	 * grouping sets and the clause references any columns that are nullable
-	 * by the grouping sets; moving such a clause into WHERE would potentially
-	 * change the results.  (If there are only empty grouping sets, then the
-	 * HAVING clause must be degenerate as discussed below.)
+	 * only once per group).  We also can't do this if there are any grouping
+	 * sets and the clause references any columns that are nullable by the
+	 * grouping sets; the nulled values of those columns are not available
+	 * before the grouping step.  (The test on groupClause might seem wrong,
+	 * but it's okay: it's just an optimization to avoid running pull_varnos
+	 * when there cannot be any Vars in the HAVING clause.)
 	 *
 	 * Also, it may be that the clause is so expensive to execute that we're
 	 * better off doing it only once per group, despite the loss of
@@ -1082,19 +1128,19 @@ subquery_planner(PlannerGlobal *glob, Query *parse, PlannerInfo *parent_root,
 	 * clause into WHERE, in hopes of eliminating tuples before aggregation
 	 * instead of after.
 	 *
-	 * If the query has explicit grouping then we can simply move such a
+	 * If the query has no empty grouping set then we can simply move such a
 	 * clause into WHERE; any group that fails the clause will not be in the
 	 * output because none of its tuples will reach the grouping or
-	 * aggregation stage.  Otherwise we must have a degenerate (variable-free)
-	 * HAVING clause, which we put in WHERE so that query_planner() can use it
-	 * in a gating Result node, but also keep in HAVING to ensure that we
-	 * don't emit a bogus aggregated row. (This could be done better, but it
-	 * seems not worth optimizing.)
+	 * aggregation stage.  Otherwise we have to keep the clause in HAVING to
+	 * ensure that we don't emit a bogus aggregated row.  But then the HAVING
+	 * clause must be degenerate (variable-free), so we can copy it into WHERE
+	 * so that query_planner() can use it in a gating Result node. (This could
+	 * be done better, but it seems not worth optimizing.)
 	 *
 	 * Note that a HAVING clause may contain expressions that are not fully
 	 * preprocessed.  This can happen if these expressions are part of
 	 * grouping items.  In such cases, they are replaced with GROUP Vars in
-	 * the parser and then replaced back after we've done with expression
+	 * the parser and then replaced back after we're done with expression
 	 * preprocessing on havingQual.  This is not an issue if the clause
 	 * remains in HAVING, because these expressions will be matched to lower
 	 * target items in setrefs.c.  However, if the clause is moved or copied
@@ -1119,8 +1165,11 @@ subquery_planner(PlannerGlobal *glob, Query *parse, PlannerInfo *parent_root,
 			/* keep it in HAVING */
 			newHaving = lappend(newHaving, havingclause);
 		}
-		else if (parse->groupClause)
+		else if (parse->groupClause &&
+				 (parse->groupingSets == NIL ||
+				  (List *) linitial(parse->groupingSets) != NIL))
 		{
+			/* There is GROUP BY, but no empty grouping set */
 			Node	   *whereclause;
 
 			/* Preprocess the HAVING clause fully */
@@ -1133,6 +1182,7 @@ subquery_planner(PlannerGlobal *glob, Query *parse, PlannerInfo *parent_root,
 		}
 		else
 		{
+			/* There is an empty grouping set (perhaps implicitly) */
 			Node	   *whereclause;
 
 			/* Preprocess the HAVING clause fully */
@@ -1694,9 +1744,10 @@ grouping_planner(PlannerInfo *root, double tuple_fraction,
 			sort_input_target = linitial_node(PathTarget, sort_input_targets);
 			Assert(!linitial_int(sort_input_targets_contain_srfs));
 			/* likewise for grouping_target vs. scanjoin_target */
-			split_pathtarget_at_srfs(root, grouping_target, scanjoin_target,
-									 &grouping_targets,
-									 &grouping_targets_contain_srfs);
+			split_pathtarget_at_srfs_grouping(root,
+											  grouping_target, scanjoin_target,
+											  &grouping_targets,
+											  &grouping_targets_contain_srfs);
 			grouping_target = linitial_node(PathTarget, grouping_targets);
 			Assert(!linitial_int(grouping_targets_contain_srfs));
 			/* scanjoin_target will not have any SRFs precomputed for it */
@@ -2119,10 +2170,13 @@ grouping_planner(PlannerInfo *root, double tuple_fraction,
 }
 
 /*
- * Do preprocessing for groupingSets clause and related data.  This handles the
- * preliminary steps of expanding the grouping sets, organizing them into lists
- * of rollups, and preparing annotations which will later be filled in with
- * size estimates.
+ * Do preprocessing for groupingSets clause and related data.
+ *
+ * We expect that parse->groupingSets has already been expanded into a flat
+ * list of grouping sets (that is, just integer Lists of ressortgroupref
+ * numbers) by expand_grouping_sets().  This function handles the preliminary
+ * steps of organizing the grouping sets into lists of rollups, and preparing
+ * annotations which will later be filled in with size estimates.
  */
 static grouping_sets_data *
 preprocess_grouping_sets(PlannerInfo *root)
@@ -2133,18 +2187,17 @@ preprocess_grouping_sets(PlannerInfo *root)
 	ListCell   *lc_set;
 	grouping_sets_data *gd = palloc0(sizeof(grouping_sets_data));
 
-	parse->groupingSets = expand_grouping_sets(parse->groupingSets, parse->groupDistinct, -1);
-
-	gd->any_hashable = false;
-	gd->unhashable_refs = NULL;
-	gd->unsortable_refs = NULL;
-	gd->unsortable_sets = NIL;
-
 	/*
 	 * We don't currently make any attempt to optimize the groupClause when
 	 * there are grouping sets, so just duplicate it in processed_groupClause.
 	 */
 	root->processed_groupClause = parse->groupClause;
+
+	/* Detect unhashable and unsortable grouping expressions */
+	gd->any_hashable = false;
+	gd->unhashable_refs = NULL;
+	gd->unsortable_refs = NULL;
+	gd->unsortable_sets = NIL;
 
 	if (parse->groupClause)
 	{
@@ -5890,6 +5943,41 @@ optimize_window_clauses(PlannerInfo *root, WindowFuncLists *wflists)
 				}
 			}
 		}
+	}
+
+	/*
+	 * XXX remove any duplicate WindowFuncs from each WindowClause.  This has
+	 * been done only in the back branches.  Previously, the deduplication was
+	 * done in find_window_functions(), but that caused issues with the code
+	 * above when moving a WindowFunc to another WindowClause as any duplicate
+	 * WindowFuncs won't receive the adjusted winref when merging
+	 * WindowClauses.  The deduplication below has been done only so that we
+	 * maintain the same cost calculations.  As it turns out, the previous
+	 * deduplication code thought it was saving effort during execution by
+	 * getting rid of duplicates, but that was not true as the expression
+	 * evaluation code will evaluate each WindowFunc mentioned in the
+	 * targetlist.
+	 */
+	foreach(lc, windowClause)
+	{
+		WindowClause *wc = lfirst_node(WindowClause, lc);
+		ListCell   *lc2;
+		List	   *list = wflists->windowFuncs[wc->winref];
+		List	   *newlist = NIL;
+
+		if (list == NIL)
+			continue;
+
+		foreach(lc2, list)
+		{
+			if (!list_member(newlist, lfirst(lc2)))
+				newlist = lappend(newlist, lfirst(lc2));
+			else
+				wflists->numWindowFuncs--;
+		}
+		list_free(list);
+
+		wflists->windowFuncs[wc->winref] = newlist;
 	}
 }
 

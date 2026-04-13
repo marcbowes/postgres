@@ -1279,6 +1279,28 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 		lst = RelationGetNotNullConstraints(RelationGetRelid(relation), false,
 											true);
 		cxt->nnconstraints = list_concat(cxt->nnconstraints, lst);
+
+		/* Copy comments on not-null constraints */
+		if (table_like_clause->options & CREATE_TABLE_LIKE_COMMENTS)
+		{
+			foreach_node(Constraint, nnconstr, lst)
+			{
+				if ((comment = GetComment(get_relation_constraint_oid(RelationGetRelid(relation),
+																	  nnconstr->conname, false),
+										  ConstraintRelationId,
+										  0)) != NULL)
+				{
+					CommentStmt *stmt = makeNode(CommentStmt);
+
+					stmt->objtype = OBJECT_TABCONSTRAINT;
+					stmt->object = (Node *) list_make3(makeString(cxt->relation->schemaname),
+													   makeString(cxt->relation->relname),
+													   makeString(nnconstr->conname));
+					stmt->comment = comment;
+					cxt->alist = lappend(cxt->alist, stmt);
+				}
+			}
+		}
 	}
 
 	/*
@@ -1439,7 +1461,6 @@ expandTableLikeClause(RangeVar *heapRel, TableLikeClause *table_like_clause)
 			char	   *ccname = constr->check[ccnum].ccname;
 			char	   *ccbin = constr->check[ccnum].ccbin;
 			bool		ccenforced = constr->check[ccnum].ccenforced;
-			bool		ccvalid = constr->check[ccnum].ccvalid;
 			bool		ccnoinherit = constr->check[ccnum].ccnoinherit;
 			Node	   *ccbin_node;
 			bool		found_whole_row;
@@ -1470,7 +1491,7 @@ expandTableLikeClause(RangeVar *heapRel, TableLikeClause *table_like_clause)
 			n->conname = pstrdup(ccname);
 			n->location = -1;
 			n->is_enforced = ccenforced;
-			n->initially_valid = ccvalid;
+			n->initially_valid = ccenforced;	/* sic */
 			n->is_no_inherit = ccnoinherit;
 			n->raw_expr = NULL;
 			n->cooked_expr = nodeToString(ccbin_node);
@@ -2737,7 +2758,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 
 			/*
 			 * The WITHOUT OVERLAPS part (if any) must be a range or
-			 * multirange type.
+			 * multirange type, or a domain over such a type.
 			 */
 			if (constraint->without_overlaps && lc == list_last_cell(constraint->keys))
 			{
@@ -2755,8 +2776,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 						const char *attname;
 
 						if (attr->attisdropped)
-							break;
-
+							continue;
 						attname = NameStr(attr->attname);
 						if (strcmp(attname, key) == 0)
 						{
@@ -2768,10 +2788,16 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 				}
 				if (found)
 				{
+					/* Look up column type if we didn't already */
 					if (!OidIsValid(typid) && column)
-						typid = typenameTypeId(NULL, column->typeName);
-
-					if (!OidIsValid(typid) || !(type_is_range(typid) || type_is_multirange(typid)))
+						typid = typenameTypeId(cxt->pstate,
+											   column->typeName);
+					/* Look through any domain */
+					if (OidIsValid(typid))
+						typid = getBaseType(typid);
+					/* Complain if not range/multirange */
+					if (!OidIsValid(typid) ||
+						!(type_is_range(typid) || type_is_multirange(typid)))
 						ereport(ERROR,
 								(errcode(ERRCODE_DATATYPE_MISMATCH),
 								 errmsg("column \"%s\" in WITHOUT OVERLAPS is not a range or multirange type", key),
@@ -4418,11 +4444,13 @@ transformPartitionRangeBounds(ParseState *pstate, List *blist,
 	int			i,
 				j;
 
-	i = j = 0;
+	j = 0;
 	foreach(lc, blist)
 	{
 		Node	   *expr = lfirst(lc);
 		PartitionRangeDatum *prd = NULL;
+
+		i = foreach_current_index(lc);
 
 		/*
 		 * Infinite range bounds -- "minvalue" and "maxvalue" -- get passed in
@@ -4501,7 +4529,6 @@ transformPartitionRangeBounds(ParseState *pstate, List *blist,
 			prd = makeNode(PartitionRangeDatum);
 			prd->kind = PARTITION_RANGE_DATUM_VALUE;
 			prd->value = (Node *) value;
-			++i;
 		}
 
 		prd->location = exprLocation(expr);

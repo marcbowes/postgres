@@ -567,6 +567,12 @@ select f2, count(*) from
 t1 x(x0,x1) left join (t1 left join t2 using(f2)) on (x0 = 0)
 group by f2;
 
+-- check that we preserve join alias in GROUP BY expressions
+create temp view v1 as
+select f1::int from t1 left join t2 using (f1) group by f1;
+select pg_get_viewdef('v1'::regclass);
+
+drop view v1;
 drop table t1, t2;
 
 --
@@ -1504,15 +1510,6 @@ select v||'a', case v||'a' when 'aa' then 1 else 0 end, count(*)
 select v||'a', case when v||'a' = 'aa' then 1 else 0 end, count(*)
   from unnest(array['a','b']) u(v)
  group by v||'a' order by 1;
-
--- Make sure that generation of HashAggregate for uniqification purposes
--- does not lead to array overflow due to unexpected duplicate hash keys
--- see CAFeeJoKKu0u+A_A9R9316djW-YW3-+Gtgvy3ju655qRHR3jtdA@mail.gmail.com
-set enable_memoize to off;
-explain (costs off)
-  select 1 from tenk1
-   where (hundred, thousand) in (select twothousand, twothousand from onek);
-reset enable_memoize;
 
 --
 -- Hash Aggregation Spill tests

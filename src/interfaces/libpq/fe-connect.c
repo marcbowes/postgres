@@ -18,6 +18,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <ctype.h>
+#include <limits.h>
 #include <netdb.h>
 #include <time.h>
 #include <unistd.h>
@@ -1143,7 +1144,7 @@ parse_comma_separated_list(char **startptr, bool *more)
 	char	   *p;
 	char	   *s = *startptr;
 	char	   *e;
-	int			len;
+	size_t		len;
 
 	/*
 	 * Search for the end of the current element; a comma or end-of-string
@@ -2177,7 +2178,7 @@ pqConnectOptions2(PGconn *conn)
 	if (conn->min_pversion > conn->max_pversion)
 	{
 		conn->status = CONNECTION_BAD;
-		libpq_append_conn_error(conn, "min_protocol_version is greater than max_protocol_version");
+		libpq_append_conn_error(conn, "\"%s\" is greater than \"%s\"", "min_protocol_version", "max_protocol_version");
 		return false;
 	}
 
@@ -5780,7 +5781,21 @@ ldapServiceLookup(const char *purl, PQconninfoOption *options,
 	/* concatenate values into a single string with newline terminators */
 	size = 1;					/* for the trailing null */
 	for (i = 0; values[i] != NULL; i++)
+	{
+		if (values[i]->bv_len >= INT_MAX ||
+			size > (INT_MAX - (values[i]->bv_len + 1)))
+		{
+			libpq_append_error(errorMessage,
+							   "connection info string size exceeds the maximum allowed (%d)",
+							   INT_MAX);
+			ldap_value_free_len(values);
+			ldap_unbind(ld);
+			return 3;
+		}
+
 		size += values[i]->bv_len + 1;
+	}
+
 	if ((result = malloc(size)) == NULL)
 	{
 		libpq_append_error(errorMessage, "out of memory");
@@ -7498,14 +7513,6 @@ PQdb(const PGconn *conn)
 }
 
 char *
-PQservice(const PGconn *conn)
-{
-	if (!conn)
-		return NULL;
-	return conn->pgservice;
-}
-
-char *
 PQuser(const PGconn *conn)
 {
 	if (!conn)
@@ -7572,10 +7579,12 @@ PQport(const PGconn *conn)
 	if (!conn)
 		return NULL;
 
-	if (conn->connhost != NULL)
+	if (conn->connhost != NULL &&
+		conn->connhost[conn->whichhost].port != NULL &&
+		conn->connhost[conn->whichhost].port[0] != '\0')
 		return conn->connhost[conn->whichhost].port;
 
-	return "";
+	return DEF_PGPORT_STR;
 }
 
 /*
